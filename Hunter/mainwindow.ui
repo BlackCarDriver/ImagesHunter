@@ -7,7 +7,7 @@
     <x>0</x>
     <y>0</y>
     <width>860</width>
-    <height>621</height>
+    <height>627</height>
    </rect>
   </property>
   <property name="acceptDrops">
@@ -376,7 +376,7 @@
     <property name="geometry">
      <rect>
       <x>10</x>
-      <y>300</y>
+      <y>280</y>
       <width>391</width>
       <height>241</height>
      </rect>
@@ -384,7 +384,7 @@
     <property name="title">
      <string>爬取方案</string>
     </property>
-    <widget class="QTabWidget" name="tabWidget">
+    <widget class="QTabWidget" name="methodTag">
      <property name="geometry">
       <rect>
        <x>10</x>
@@ -394,7 +394,7 @@
       </rect>
      </property>
      <property name="currentIndex">
-      <number>3</number>
+      <number>0</number>
      </property>
      <widget class="QWidget" name="tab">
       <attribute name="title">
@@ -812,30 +812,30 @@ p, li { white-space: pre-wrap; }
     <widget class="QTableWidget" name="static_list">
      <property name="geometry">
       <rect>
-       <x>20</x>
-       <y>130</y>
+       <x>30</x>
+       <y>140</y>
        <width>391</width>
        <height>431</height>
       </rect>
      </property>
      <column>
       <property name="text">
-       <string>序号</string>
+       <string>url</string>
       </property>
      </column>
      <column>
       <property name="text">
-       <string>网址</string>
+       <string>大小</string>
       </property>
      </column>
      <column>
       <property name="text">
-       <string>图片总数</string>
+       <string>结果</string>
       </property>
      </column>
      <column>
       <property name="text">
-       <string>下载张数</string>
+       <string>文件名</string>
       </property>
      </column>
     </widget>
@@ -959,7 +959,7 @@ p, li { white-space: pre-wrap; }
     <property name="geometry">
      <rect>
       <x>40</x>
-      <y>550</y>
+      <y>540</y>
       <width>121</width>
       <height>41</height>
      </rect>
@@ -972,7 +972,7 @@ p, li { white-space: pre-wrap; }
     <property name="geometry">
      <rect>
       <x>240</x>
-      <y>550</y>
+      <y>540</y>
       <width>121</width>
       <height>41</height>
      </rect>
