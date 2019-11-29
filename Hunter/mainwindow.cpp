@@ -74,6 +74,10 @@ void MainWindow::functionHandle(QString key){
 //messageHandle handle the data or message get from go
 void MainWindow::messageHandle(QString key, QString content){
     qDebug()<<"Message key:  "<<key;
+    if(key=="error"){
+        QMessageBox::information(this, "go error", content);
+        return;
+    }
     if(key=="test"){
         QStringList res = content.split(' ');
         if(res.length()<4){
@@ -86,6 +90,7 @@ void MainWindow::messageHandle(QString key, QString content){
         ui->static_list->setItem(i, 1, new QTableWidgetItem(res[1]));
         ui->static_list->setItem(i, 2, new QTableWidgetItem(res[2]));
         ui->static_list->setItem(i, 3, new QTableWidgetItem(res[3]));
+        return;
     }
     return;
 }
@@ -146,7 +151,7 @@ QString MainWindow::getConfig(){
           QMessageBox::warning(this,"Fail","URL format is invalid!");
           return "";
       }
-      QString configStr =  QString("%1@%2 %3 %4 %5 %6 %7 %8 %9 %10 %11 %12 %13 %14\
+      QString configStr =  QString("%1 %2 %3 %4 %5 %6 %7 %8 %9 %10 %11 %12 %13 %14\
 ").arg(method).arg(savePath).arg(sizeLimit).arg(numberLimit).arg(threadLimit).arg(minmun).arg(maxnum).arg(longestWait).arg(interval).arg(baseUrl).arg(lineKey).arg(targetKey).arg(startPoint).arg(endPoint);
       qDebug()<<configStr;
       return configStr;
@@ -156,5 +161,5 @@ QString MainWindow::getConfig(){
 void MainWindow::on_pushButton_clicked(){
    QString dir = QFileDialog::getExistingDirectory( this, "保存位置", "D://",  QFileDialog::DontResolveSymlinks);
    ui->edit_base_savePath->setText(dir);
-    return;
+   return;
 }
