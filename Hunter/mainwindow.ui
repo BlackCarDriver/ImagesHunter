@@ -38,6 +38,9 @@
        <height>21</height>
       </rect>
      </property>
+     <property name="text">
+      <string>D:/TEMP</string>
+     </property>
     </widget>
     <widget class="QLabel" name="label_savePath">
      <property name="geometry">
@@ -409,6 +412,9 @@
          <height>21</height>
         </rect>
        </property>
+       <property name="text">
+        <string>http:\\indoor.com</string>
+       </property>
       </widget>
       <widget class="QLabel" name="label_bfs_pathTP">
        <property name="geometry">
@@ -433,7 +439,7 @@
         </rect>
        </property>
        <property name="text">
-        <string/>
+        <string>redirects keyword</string>
        </property>
       </widget>
       <widget class="QLabel" name="label_bfs_lineKey">
@@ -472,7 +478,7 @@
         </rect>
        </property>
        <property name="text">
-        <string/>
+        <string>target keyword</string>
        </property>
       </widget>
      </widget>

@@ -140,10 +140,8 @@ func (b *Bridge) SendMessage(key string, data interface{}) error {
 		}
 		tmpStr = fmt.Sprintf("%s", tmpbytes)
 	}
-	logs.Info("Sending Content: %v", tmpStr)
 	strings.ReplaceAll(tmpStr, "#", "^#")
 	sendStr := fmt.Sprintf("%s@%s\\#", key, tmpStr)
-	logs.Info("send string: %s", sendStr)
 	b.mu.Lock()
 	fmt.Fprintf(b.conn, sendStr)
 	time.Sleep(15 * time.Millisecond)

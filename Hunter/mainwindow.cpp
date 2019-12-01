@@ -22,7 +22,7 @@ MainWindow::MainWindow(QWidget *parent):QMainWindow(parent) ,ui(new Ui::MainWind
        QMessageBox::warning(this, "Error", "Fail when listen at localhost:4747!");
     }
 
-    //menu bar set   ting
+    //menu bar setting
     QMenu* file = menuBar()->addMenu(tr("文件(&F)"));
     QAction *openconf = new QAction(tr("打开配置(&O)"), this);
     QAction *saveconf = new QAction(tr("保存配置(&S)"), this);
@@ -46,7 +46,7 @@ MainWindow::MainWindow(QWidget *parent):QMainWindow(parent) ,ui(new Ui::MainWind
     //set some widget's state as disable before socket connect success
     widgetArray.push_back(ui->btn_start);
     widgetArray.push_back(ui->btn_stop);
-   // setWidgetState(false);
+    setWidgetState(false);
 }
 
 MainWindow::~MainWindow(){
@@ -67,6 +67,10 @@ void MainWindow::functionHandle(QString key){
     qDebug()<<"function key: "<<key;
     if(key=="connect_success"){
         this->setWidgetState(true);
+        ui->btn_stop->setEnabled(false);
+    }
+    if(key=="disconnect"){
+        ui->static_progressbar->setValue(100);
     }
     return;
 }
@@ -78,10 +82,13 @@ void MainWindow::messageHandle(QString key, QString content){
         QMessageBox::information(this, "go error", content);
         return;
     }
-    if(key=="test"){
-        QStringList res = content.split(' ');
+    if(key=="info"){
+        QMessageBox::information(this, "go info", content);
+    }
+    if(key=="table"){
+        QStringList res = content.replace("\\ ", " ").split(' ');
         if(res.length()<4){
-            qDebug()<<"length of static data smaller than 4!";
+            qDebug()<<"length of table data smaller than 4!";
             return;
         }
         int i = ui->static_list->rowCount();
@@ -92,13 +99,48 @@ void MainWindow::messageHandle(QString key, QString content){
         ui->static_list->setItem(i, 3, new QTableWidgetItem(res[3]));
         return;
     }
+    if(key=="static"){
+        QStringList res = content.split(' ');
+        if (res.length()!=7){
+            qDebug()<<"length of static data not correct!";
+            return;
+        }
+        ui->lable_res_number->setText(res[0]);
+        ui->lable_res_size->setText(res[1]);
+        ui->lable_res_length->setText(res[2]);
+        ui->lable_res_page->setText(res[3]);
+        ui->label_res_speed->setText(res[4]);
+        ui->lable_res_time->setText(res[5]);
+        ui->static_progressbar->setValue(res[6].toInt());
+    }
     return;
 }
 
 void MainWindow::on_btn_start_clicked(){
     simpleStr *conf = new simpleStr;
-    conf->init(getConfig());
-    bridge->sendMessage("start", conf);
+    if(ui->btn_start->text()=="暂停"){
+         ui->btn_stop->setEnabled(false);
+        conf->init("");
+        bridge->sendMessage("pause", conf);
+        ui->btn_start->setText("开始");
+    }else{
+         ui->btn_stop->setEnabled(true);
+        conf->init(getConfig());
+        bridge->sendMessage("start", conf);
+        qDebug()<<conf->toString();
+        ui->btn_start->setText("暂停");
+    }
+    delete conf;
+    return;
+}
+
+//send stop signal to go huntter
+void MainWindow::on_btn_stop_clicked(){
+    simpleStr *conf = new simpleStr;
+    conf->init("");
+    bridge->sendMessage("stop", conf);
+    ui->btn_stop->setEnabled(false);
+    ui->btn_start->setEnabled(true);
     delete conf;
     return;
 }
@@ -113,7 +155,7 @@ QString MainWindow::getConfig(){
       int maxnum = ui->spin_base_maxnum->value();
       int longestWait = ui->spin_base_waitTime->value();
       int interval = ui->spin_base_interval->value();
-      QString savePath = ui->edit_base_savePath->text();
+      QString savePath = ui->edit_base_savePath->text().replace(" ", "\\ ");
 
       //get medhod config
       QString method ="-", baseUrl="-", lineKey="-", targetKey="-";
@@ -123,7 +165,7 @@ QString MainWindow::getConfig(){
         case 0: //bfs
           method = "bfs";
           baseUrl = ( ui->edit_bfs_url->text()==""? "-":ui->edit_bfs_url->text());
-          lineKey = (ui->edit_bfs_lineKey->text()==""?"-":ui->edit_bfs_url->text());
+          lineKey = (ui->edit_bfs_lineKey->text()==""?"-":ui->edit_bfs_lineKey->text());
           targetKey = (ui->edit_bfs_targetKey->text()==""?"-":ui->edit_bfs_targetKey->text());
           break;
         case 1: //dfs
@@ -142,6 +184,7 @@ QString MainWindow::getConfig(){
           baseUrl = (ui->textEdit_urlList->placeholderText()==""?"-":ui->textEdit_urlList->placeholderText());
           break;
       }
+
       //check the value
       if(savePath==""){
           QMessageBox::warning(this,"Fail","SavePath is null!");
@@ -151,9 +194,14 @@ QString MainWindow::getConfig(){
           QMessageBox::warning(this,"Fail","URL format is invalid!");
           return "";
       }
+      //transparent transmission
+      method = method.replace(" ", "&npsp");
+      baseUrl = baseUrl.replace(" ", "&npsp");
+      lineKey = lineKey.replace(" ", "&npsp");
+      targetKey = targetKey.replace(" ", "&npsp");
+
       QString configStr =  QString("%1 %2 %3 %4 %5 %6 %7 %8 %9 %10 %11 %12 %13 %14\
 ").arg(method).arg(savePath).arg(sizeLimit).arg(numberLimit).arg(threadLimit).arg(minmun).arg(maxnum).arg(longestWait).arg(interval).arg(baseUrl).arg(lineKey).arg(targetKey).arg(startPoint).arg(endPoint);
-      qDebug()<<configStr;
       return configStr;
 }
 
@@ -163,3 +211,4 @@ void MainWindow::on_pushButton_clicked(){
    ui->edit_base_savePath->setText(dir);
    return;
 }
+

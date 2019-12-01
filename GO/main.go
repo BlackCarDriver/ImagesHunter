@@ -4,6 +4,8 @@ import (
 	"errors"
 	"fmt"
 	"os"
+	"strings"
+	"time"
 
 	"./bridge"
 	"./digger"
@@ -21,7 +23,7 @@ func main() {
 		logs.Error(err)
 		os.Exit(1)
 	}
-	msgChan := make(chan *bridge.Unit, 100)
+	msgChan := make(chan *bridge.Unit, 100) //msgChan receive the message send by qt mainwindow
 	go tube.Start(msgChan)
 	runResult := <-msgChan
 	//the first message is the result of socket connectting
@@ -29,7 +31,7 @@ func main() {
 		logs.Error("Start fail: %s", runResult.Content)
 		os.Exit(1)
 	} else {
-		logs.Info(runResult.Key)
+		logs.Info("Run success: %s", runResult.Key)
 	}
 	//wait and handle the message
 	for {
@@ -48,7 +50,7 @@ func main() {
 }
 
 func test() {
-	digger.DigPWithClass()
+	//digger.DigPWithClass()
 }
 
 func SignalHandler(signal *bridge.Unit) error {
@@ -63,6 +65,11 @@ func SignalHandler(signal *bridge.Unit) error {
 		}
 
 	case "start": //start huntting images
+		if digger.IsRunning {
+			err := errors.New("Digger is running")
+			logs.Error(err)
+			return err
+		}
 		logs.Info("%v", signal.Content)
 		sizeLimit, numberLimit, threadLimit, minmun, maxmun, loggestWait, interval := 0, 0, 0, 0, 0, 0, 0
 		startPoint, endPoint := 0, 0
@@ -79,26 +86,32 @@ func SignalHandler(signal *bridge.Unit) error {
 			logs.Error(err)
 			return err
 		}
+		//restore blank character
+		method = strings.ReplaceAll(method, "&npsp", " ")
+		savePath = strings.ReplaceAll(savePath, "&npsp", " ")
+		baseUrl = strings.ReplaceAll(baseUrl, "&npsp", " ")
+		lineKey = strings.ReplaceAll(lineKey, "&npsp", " ")
+		targetKey = strings.ReplaceAll(targetKey, "&npsp", " ")
+
 		//check the savepath if exist
 		if !checkDirExist(savePath) {
 			err = fmt.Errorf("directory %s not exist", savePath)
-			logs.Error(err)
+			logs.Warn(err)
 			return err
 		}
 		//setting up digger
 		digger.SizeLimit = sizeLimit
-		digger.NumberList = numberLimit
+		digger.NumberLimit = numberLimit
 		digger.ThreadLimit = threadLimit
 		digger.Minmun = minmun
 		digger.Maxmun = maxmun
 		digger.LongestWait = loggestWait
 		digger.Interval = interval
-		digger.Savepath = savePath
+		digger.SavePath = savePath
 		if err = digger.CheckBaseConf(); err != nil {
 			logs.Error(err)
 			return err
 		}
-
 		//switch to different model according to method
 		msg := make(chan string, 100)
 		switch method {
@@ -110,22 +123,45 @@ func SignalHandler(signal *bridge.Unit) error {
 			go digger.ForLoop_hunt(baseUrl, startPoint, startPoint, msg)
 		case "urllist":
 			go digger.UrlList_hunt(baseUrl, msg)
-
 		default:
 			err = fmt.Errorf("Unexpect method name: %s", method)
 			logs.Error(err)
 			defer close(msg)
 			return err
 		}
-		for {
-			returnData, more := <-msg
-			if !more {
-				break
+		//listen and send table data to qt mainwindows
+		go func() {
+			for {
+				returnData, more := <-msg
+				if !more {
+					tube.SendMessage("info", "Images hunter is stop !")
+					break
+				}
+				if err = tube.SendMessage("table", returnData); err != nil {
+					logs.Error(err)
+				}
 			}
+		}()
+		//listen and send static data to qt mainwindows
+		go func() {
+			for {
+				<-time.Tick(time.Second)
+				staticData := digger.GetStatic()
+				if staticData == "pause" {
+					continue
+				}
+				if staticData == "end" {
+					return
+				}
+				tube.SendMessage("static", staticData)
+			}
+		}()
 
-		}
+	case "pause":
+		digger.Pause()
 
-		return nil
+	case "stop":
+		digger.Stop()
 
 	default:
 		err = fmt.Errorf("Unexpect key name: %s", key)
