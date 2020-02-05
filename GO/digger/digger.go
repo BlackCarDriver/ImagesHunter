@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"math/rand"
 	"net/http"
+	"sync"
 	"time"
 
 	"github.com/astaxie/beego/logs"
@@ -48,8 +49,10 @@ var (
 
 //some galbol obeject
 var (
-	randMachine *rand.Rand
-	mainClient  *http.Client
+	randMachine     *rand.Rand
+	mainClient      *http.Client
+	getNameMutex    *sync.Mutex
+	updataSizeMutex *sync.Mutex
 )
 
 //some public regexp obeject

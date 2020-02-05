@@ -14,17 +14,16 @@ Bridge::Bridge(QWidget *parent):QWidget(parent){
     Isconnected = false;
 }
 
-//start to listen at localhost
+//监听端口并设置等待连接信号
 int Bridge::start(){
     if(!tcpServer->listen(QHostAddress::LocalHost, ListenAt)) {
         return -1;
-    }else{
-        connect(tcpServer, SIGNAL(newConnection()), this, SLOT(MakeSocketConnection()));
-        return 0;
     }
+    connect(tcpServer, SIGNAL(newConnection()), this, SLOT(MakeSocketConnection()));
+    return 0;
 }
 
-//update a tcp connection to socket
+//连接成功后升级连接方式为socket,设置收到消息和连接断开触发的事件
 void Bridge::MakeSocketConnection(){
     qDebug()<<"Someone connect!"<<endl;
     tcpSocket = tcpServer->nextPendingConnection();
@@ -39,16 +38,16 @@ void Bridge::MakeSocketConnection(){
     return;
 }
 
-//socket connection break
+//处理量连接断开的情况
 void Bridge::SocketDisconect(){
     QMessageBox::warning(this,"Inof","The connect is Close!");
     this->Isconnected = false;
     tcpSocket->close();
     tcpServer->close();
-    sendSignal("disconnect");
+    emit sendSignal("disconnect");
 }
 
-//resolv key and content from the msg string to two qstring, return whether success
+//处理接收到的字符串msg,根据协议得到并写进key和contnet中。
 bool Bridge::handleMsg(QString msg, QString &key, QString &content){
     int idx = msg.indexOf("@");
     if (idx < 0 ){
@@ -91,7 +90,7 @@ void Bridge::sendMessage(string key, DataStruct *data){
 void Bridge::SocketReadData(){
     while(readDataLock);
     readDataLock = true;
-    char buffer[1024];
+    char buffer[1025];
     QString qs = "";
     QString key="", content = "";
 

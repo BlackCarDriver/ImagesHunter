@@ -9,10 +9,9 @@ using namespace  std;
 MainWindow::MainWindow(QWidget *parent):QMainWindow(parent) ,ui(new Ui::MainWindow){
     setWindowIcon(QIcon(":./icom.ico"));
     ui->setupUi(this);
-    //setting up some widget
     ui->static_list->horizontalHeader()->setStretchLastSection(true);
 
-    //start wait for socket connection
+    //等待socket连接
     bridge = new Bridge();
     int suc = bridge->start();
     if (suc>=0){
@@ -22,7 +21,7 @@ MainWindow::MainWindow(QWidget *parent):QMainWindow(parent) ,ui(new Ui::MainWind
        QMessageBox::warning(this, "Error", "Fail when listen at localhost:4747!");
     }
 
-    //menu bar setting
+    //菜单栏相关设置
     QMenu* file = menuBar()->addMenu(tr("文件(&F)"));
     QAction *openconf = new QAction(tr("打开配置(&O)"), this);
     QAction *saveconf = new QAction(tr("保存配置(&S)"), this);
@@ -43,7 +42,7 @@ MainWindow::MainWindow(QWidget *parent):QMainWindow(parent) ,ui(new Ui::MainWind
     lanugh-> addAction(english);
     lanugh->addAction(chinese);
 
-    //set some widget's state as disable before socket connect success
+    //在连接成功前一些按钮设置为无效状态
     widgetArray.push_back(ui->btn_start);
     widgetArray.push_back(ui->btn_stop);
     setWidgetState(false);
@@ -54,7 +53,7 @@ MainWindow::~MainWindow(){
     delete bridge;
 }
 
-//set widgets in widgetArray as enable or disable
+//改变指定组件的状态，设置是否可点击
 void MainWindow::setWidgetState(bool enable){
     for(uint i=0;i < widgetArray.size();i++){
         widgetArray[i]->setEnabled(enable);
@@ -62,7 +61,7 @@ void MainWindow::setWidgetState(bool enable){
     return;
 }
 
-//functionHandle is a interface for bridge to controll mainwindow
+//提供接口给bridge类来控制mainwindows
 void MainWindow::functionHandle(QString key){
     qDebug()<<"function key: "<<key;
     if(key=="connect_success"){
@@ -116,36 +115,7 @@ void MainWindow::messageHandle(QString key, QString content){
     return;
 }
 
-void MainWindow::on_btn_start_clicked(){
-    simpleStr *conf = new simpleStr;
-    if(ui->btn_start->text()=="暂停"){
-         ui->btn_stop->setEnabled(false);
-        conf->init("");
-        bridge->sendMessage("pause", conf);
-        ui->btn_start->setText("开始");
-    }else{
-         ui->btn_stop->setEnabled(true);
-        conf->init(getConfig());
-        bridge->sendMessage("start", conf);
-        qDebug()<<conf->toString();
-        ui->btn_start->setText("暂停");
-    }
-    delete conf;
-    return;
-}
-
-//send stop signal to go huntter
-void MainWindow::on_btn_stop_clicked(){
-    simpleStr *conf = new simpleStr;
-    conf->init("");
-    bridge->sendMessage("stop", conf);
-    ui->btn_stop->setEnabled(false);
-    ui->btn_start->setEnabled(true);
-    delete conf;
-    return;
-}
-
-//collect those setting from widget to a string
+//从组件中获取用户设置的值,通过返回值返回
 QString MainWindow::getConfig(){
       //get basic config
       int sizeLimit = ui->spin_base_sizeLimit->value();
@@ -205,7 +175,39 @@ QString MainWindow::getConfig(){
       return configStr;
 }
 
-//choise a path to save the images
+//========================= 按钮点击事件 =========================
+
+//开始/暂停按钮点击事件
+void MainWindow::on_btn_start_clicked(){
+    simpleStr *conf = new simpleStr;
+    if(ui->btn_start->text()=="暂停"){
+         ui->btn_stop->setEnabled(false);
+        conf->init("");
+        bridge->sendMessage("pause", conf);
+        ui->btn_start->setText("开始");
+    }else{
+         ui->btn_stop->setEnabled(true);
+        conf->init(getConfig());
+        bridge->sendMessage("start", conf);
+        qDebug()<<conf->toString();
+        ui->btn_start->setText("暂停");
+    }
+    delete conf;
+    return;
+}
+
+//停止按钮点击事件
+void MainWindow::on_btn_stop_clicked(){
+    simpleStr *conf = new simpleStr;
+    conf->init("");
+    bridge->sendMessage("stop", conf);
+    ui->btn_stop->setEnabled(false);
+    ui->btn_start->setEnabled(true);
+    delete conf;
+    return;
+}
+
+//选择路径按钮被点击事件
 void MainWindow::on_pushButton_clicked(){
    QString dir = QFileDialog::getExistingDirectory( this, "保存位置", "D://",  QFileDialog::DontResolveSymlinks);
    ui->edit_base_savePath->setText(dir);
