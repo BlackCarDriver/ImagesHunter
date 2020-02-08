@@ -11,12 +11,13 @@ MainWindow::MainWindow(QWidget *parent):QMainWindow(parent) ,ui(new Ui::MainWind
     ui->setupUi(this);
     ui->static_list->horizontalHeader()->setStretchLastSection(true);
 
+    //初始化bridge
+    bridge = new Bridge<MainWindow>();
+    bridge->regisitClass(this);
     //等待socket连接
-    bridge = new Bridge();
     int suc = bridge->start();
     if (suc>=0){
-       connect(bridge, SIGNAL(getMsg(QString, QString)), this, SLOT(messageHandle(QString, QString)));
-       connect(bridge, SIGNAL(sendSignal(QString)), this, SLOT(functionHandle(QString)));
+       //connect(bridge, SIGNAL(sendSignal(QString)), this, SLOT(functionHandle(QString)));
     }else{
        QMessageBox::warning(this, "Error", "Fail when listen at localhost:4747!");
     }
@@ -46,11 +47,13 @@ MainWindow::MainWindow(QWidget *parent):QMainWindow(parent) ,ui(new Ui::MainWind
     widgetArray.push_back(ui->btn_start);
     widgetArray.push_back(ui->btn_stop);
     setWidgetState(false);
+
+    //注册消息处理函数
+    bridge->regisitFunc("test", &MainWindow::test);
 }
 
 MainWindow::~MainWindow(){
     delete ui;
-    delete bridge;
 }
 
 //改变指定组件的状态，设置是否可点击
@@ -173,6 +176,28 @@ QString MainWindow::getConfig(){
       QString configStr =  QString("%1 %2 %3 %4 %5 %6 %7 %8 %9 %10 %11 %12 %13 %14\
 ").arg(method).arg(savePath).arg(sizeLimit).arg(numberLimit).arg(threadLimit).arg(minmun).arg(maxnum).arg(longestWait).arg(interval).arg(baseUrl).arg(lineKey).arg(targetKey).arg(startPoint).arg(endPoint);
       return configStr;
+}
+
+//========================= 消息处理函数 =========================
+
+int MainWindow::test( QString content){
+    qDebug()<<"test content="<<content;
+    return 0;
+}
+
+int MainWindow::errorHandle( QString content){
+    QMessageBox::information(this, "go error", content);
+    return 0;
+}
+
+int MainWindow::tableHandle( QString content){
+    qDebug()<<"test content="<<content;
+    return 0;
+}
+
+int MainWindow::staticHandle( QString content){
+    qDebug()<<"test content="<<content;
+    return 0;
 }
 
 //========================= 按钮点击事件 =========================

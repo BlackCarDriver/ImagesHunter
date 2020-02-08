@@ -5,8 +5,8 @@
 
 using namespace std;
 
-
-Bridge::Bridge(QWidget *parent):QWidget(parent){
+template <class T>
+Bridge<T>::Bridge(QWidget *parent):QWidget(parent){
     tcpServer = new QTcpServer();
     tcpSocket = new QTcpSocket();
     readDataLock = false;
@@ -14,17 +14,52 @@ Bridge::Bridge(QWidget *parent):QWidget(parent){
     Isconnected = false;
 }
 
-//监听端口并设置等待连接信号
-int Bridge::start(){
+//监听端口,设置等待连接信号,启动go程序
+template <class T>
+int Bridge<T>::start(){
     if(!tcpServer->listen(QHostAddress::LocalHost, ListenAt)) {
         return -1;
     }
     connect(tcpServer, SIGNAL(newConnection()), this, SLOT(MakeSocketConnection()));
+    qDebug()<<QDir::currentPath();
+    QProcess *pro = new QProcess(Q_NULLPTR);
+    pro->start("./main.exe");
+    return 0;
+}
+
+//设置目标类的实例对象
+template <class T>
+int Bridge<T>::regisitClass(T *obj){
+    if (obj==NULL){
+        qDebug()<<"[bridge.cpp => regisitClass()]： obj is NULL";
+        return -1;
+    }
+    if (this->OBJ_class!=NULL){
+        qDebug()<<"[bridge.cpp => regisitClass()]： OBJ_class already regisited";
+        return -1;
+    }
+    this->OBJ_class = obj;
+    return 0;
+}
+
+//注册消息处理函数，
+template <class T>
+int Bridge<T>::regisitFunc(QString keyword, funcTypeP func){
+    if(keyword.length()<3 || func==NULL || keyword.contains(" ")){
+        qDebug()<<"[bridge.cpp => regisitFunc()]： argument illeagle";
+        return -1;
+    }
+    if(funcMap.find(keyword)!=funcMap.end()){
+        qDebug()<<"[bridge.cpp => regisitFunc()]： keyword already regisited, keyword="+keyword;
+        return -1;
+    }
+    funcMap[keyword] = func;
     return 0;
 }
 
 //连接成功后升级连接方式为socket,设置收到消息和连接断开触发的事件
-void Bridge::MakeSocketConnection(){
+template <class T>
+void Bridge<T>::MakeSocketConnection(){
     qDebug()<<"Someone connect!"<<endl;
     tcpSocket = tcpServer->nextPendingConnection();
     if(!tcpSocket){
@@ -38,8 +73,15 @@ void Bridge::MakeSocketConnection(){
     return;
 }
 
-//处理量连接断开的情况
-void Bridge::SocketDisconect(){
+//主动断开连接
+template <class T>
+void Bridge<T>::disconnect(){
+    this->SocketDisconect();
+}
+
+//处理量连接被动断开的情况
+template <class T>
+void Bridge<T>::SocketDisconect(){
     QMessageBox::warning(this,"Inof","The connect is Close!");
     this->Isconnected = false;
     tcpSocket->close();
@@ -48,7 +90,8 @@ void Bridge::SocketDisconect(){
 }
 
 //处理接收到的字符串msg,根据协议得到并写进key和contnet中。
-bool Bridge::handleMsg(QString msg, QString &key, QString &content){
+template <class T>
+bool Bridge<T>::handleMsg(QString msg, QString &key, QString &content){
     int idx = msg.indexOf("@");
     if (idx < 0 ){
         qDebug()<<"Error: no @ in receive data!";
@@ -63,14 +106,10 @@ bool Bridge::handleMsg(QString msg, QString &key, QString &content){
     return true;
 }
 
-//disconnect initiative
-void Bridge::disconnect(){
-    this->SocketDisconect();
-}
-
-//send data to client
+//发送数据至服务端
 //key defined the function and can't contain char '@'
-void Bridge::sendMessage(string key, DataStruct *data){
+template <class T>
+void Bridge<T>::sendMessage(string key, DataStruct *data){
     if(key.find("@")!=key.npos){
         QMessageBox::warning(this, "Error", "Unexpect key!");
         return;
@@ -86,55 +125,70 @@ void Bridge::sendMessage(string key, DataStruct *data){
     tcpSocket->write(package.c_str(), sizeof(char)*package.length());
 }
 
-//read data from socket connection
-void Bridge::SocketReadData(){
+//将收到的数据转交给对应的消息处理成函数进行处理，成功返回0
+template <class T>
+int Bridge<T>::execHandle(QString keyword, QString content){
+    if(keyword.length()<2 || keyword.contains(" ") || content=="" ){
+        qDebug()<<"[bridge.cpp => execHandle()]： argument illeagle";
+        return -1;
+    }
+    if(funcMap.find(keyword)==funcMap.end()){
+        qDebug()<<"[bridge.cpp => execHandle()]： no such key, keyword="+keyword;
+        return -1;
+    }
+    funcTypeP func = funcMap[keyword];
+    int res = (OBJ_class->*func)(content);
+    if (res < 0){
+        qDebug()<<"[bridge.cpp => execHandle()]：handle func run fail, keyword="+keyword;
+        return -1;
+    }
+    return 0;
+}
+
+//读取并处理从服务端收到的数据
+template <class T>
+void Bridge<T>::SocketReadData(){
     while(readDataLock);
     readDataLock = true;
-    char buffer[1025];
-    QString qs = "";
-    QString key="", content = "";
-
-    long long res = tcpSocket->read(buffer, 1024);
+    char buffer[10241];
+    QString qs = "", key="", content = "";
+    long long res = tcpSocket->read(buffer, 10240);
     qDebug()<<res;
     if (res==-1){
         qDebug()<<"Read data fail, return -1!";
         readDataLock = false;
         return;
     }
-
     qs = buffer;
-    if(!qs.contains("\\#")){    //read data not completly
+    //若接收到的消息不完整，放到缓存中等待下次处理
+    if(!qs.contains("\\#")){
       qDebug()<<"qs not contain \\#! :"<<qs;
       readDataBuff += qs;
       readDataLock = false;
       return;
     }
-
+    //若缓存非空则拼接到上次未处理的缓存
     if(readDataBuff!="") {
         qDebug()<<"qs add with buff!";
         qs = readDataBuff + qs;
         readDataBuff = "";
     }
 
-
-    //read those complete message
+    //QStringList 是完整的消息列表，以'\\#'结尾标准着消息完整，
     QStringList  msgList = qs.split("\\#");
+    //先处理已经接受完整的消息
     for(int i=0;i<msgList.length()-1; i++){
         bool canRead = handleMsg(msgList[i], key, content);
         if (!canRead) continue;
-        emit getMsg(key, content);
+        execHandle(key, content);
     }
-    //ignore if last message not complete
+    //末尾不完整部分视为错误数据暂时丢弃处理,否则照常处理
     if (qs.endsWith("\\#")){
         bool canRead = handleMsg(msgList[msgList.length()-1], key, content);
         if (canRead) {
-           emit getMsg(key, content);
+           execHandle(key, content);
         }
     }
-
     readDataLock = false;
     return;
 }
-
-
-

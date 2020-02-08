@@ -15,6 +15,13 @@ public:
     MainWindow(QWidget *parent = nullptr);
     ~MainWindow();
 
+private: //消息处理函数
+    int test(QString content);
+    int errorHandle(QString content);
+    int infoHandle(QString content);
+    int tableHandle(QString content);
+    int staticHandle(QString content);
+
 private slots:
     void on_btn_start_clicked();
     void messageHandle(QString key, QString content);
@@ -26,7 +33,7 @@ private slots:
 
 private:
     Ui::MainWindow *ui;
-    Bridge *bridge;
+    Bridge<MainWindow>*bridge;
     vector<QWidget*> widgetArray;
     void setWidgetState(bool);
     QString getConfig();
