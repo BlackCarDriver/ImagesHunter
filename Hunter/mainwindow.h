@@ -16,11 +16,11 @@ public:
     ~MainWindow();
 
 private: //消息处理函数
-    int test(QString content);
-    int errorHandle(QString content);
-    int infoHandle(QString content);
-    int tableHandle(QString content);
-    int staticHandle(QString content);
+    static int test(void *thisP, QString content);
+    static int errorHandle(void *thisP, QString content);
+    static int infoHandle(void *thisP, QString content);
+    static int tableHandle(void *thisP, QString content);
+    static int staticHandle(void *thisP, QString content);
 
 private slots:
     void on_btn_start_clicked();
@@ -33,7 +33,7 @@ private slots:
 
 private:
     Ui::MainWindow *ui;
-    Bridge<MainWindow>*bridge;
+    Bridge *bridge;
     vector<QWidget*> widgetArray;
     void setWidgetState(bool);
     QString getConfig();

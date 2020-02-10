@@ -5,8 +5,7 @@
 
 using namespace std;
 
-template <class T>
-Bridge<T>::Bridge(QWidget *parent):QWidget(parent){
+Bridge::Bridge(QWidget *parent):QWidget(parent){
     tcpServer = new QTcpServer();
     tcpSocket = new QTcpSocket();
     readDataLock = false;
@@ -15,8 +14,7 @@ Bridge<T>::Bridge(QWidget *parent):QWidget(parent){
 }
 
 //监听端口,设置等待连接信号,启动go程序
-template <class T>
-int Bridge<T>::start(){
+int Bridge::start(){
     if(!tcpServer->listen(QHostAddress::LocalHost, ListenAt)) {
         return -1;
     }
@@ -27,39 +25,8 @@ int Bridge<T>::start(){
     return 0;
 }
 
-//设置目标类的实例对象
-template <class T>
-int Bridge<T>::regisitClass(T *obj){
-    if (obj==NULL){
-        qDebug()<<"[bridge.cpp => regisitClass()]： obj is NULL";
-        return -1;
-    }
-    if (this->OBJ_class!=NULL){
-        qDebug()<<"[bridge.cpp => regisitClass()]： OBJ_class already regisited";
-        return -1;
-    }
-    this->OBJ_class = obj;
-    return 0;
-}
-
-//注册消息处理函数，
-template <class T>
-int Bridge<T>::regisitFunc(QString keyword, funcTypeP func){
-    if(keyword.length()<3 || func==NULL || keyword.contains(" ")){
-        qDebug()<<"[bridge.cpp => regisitFunc()]： argument illeagle";
-        return -1;
-    }
-    if(funcMap.find(keyword)!=funcMap.end()){
-        qDebug()<<"[bridge.cpp => regisitFunc()]： keyword already regisited, keyword="+keyword;
-        return -1;
-    }
-    funcMap[keyword] = func;
-    return 0;
-}
-
 //连接成功后升级连接方式为socket,设置收到消息和连接断开触发的事件
-template <class T>
-void Bridge<T>::MakeSocketConnection(){
+void Bridge::MakeSocketConnection(){
     qDebug()<<"Someone connect!"<<endl;
     tcpSocket = tcpServer->nextPendingConnection();
     if(!tcpSocket){
@@ -74,14 +41,12 @@ void Bridge<T>::MakeSocketConnection(){
 }
 
 //主动断开连接
-template <class T>
-void Bridge<T>::disconnect(){
+void Bridge::disconnect(){
     this->SocketDisconect();
 }
 
 //处理量连接被动断开的情况
-template <class T>
-void Bridge<T>::SocketDisconect(){
+void Bridge::SocketDisconect(){
     QMessageBox::warning(this,"Inof","The connect is Close!");
     this->Isconnected = false;
     tcpSocket->close();
@@ -90,8 +55,7 @@ void Bridge<T>::SocketDisconect(){
 }
 
 //处理接收到的字符串msg,根据协议得到并写进key和contnet中。
-template <class T>
-bool Bridge<T>::handleMsg(QString msg, QString &key, QString &content){
+bool Bridge::handleMsg(QString msg, QString &key, QString &content){
     int idx = msg.indexOf("@");
     if (idx < 0 ){
         qDebug()<<"Error: no @ in receive data!";
@@ -108,8 +72,7 @@ bool Bridge<T>::handleMsg(QString msg, QString &key, QString &content){
 
 //发送数据至服务端
 //key defined the function and can't contain char '@'
-template <class T>
-void Bridge<T>::sendMessage(string key, DataStruct *data){
+void Bridge::sendMessage(string key, DataStruct *data){
     if(key.find("@")!=key.npos){
         QMessageBox::warning(this, "Error", "Unexpect key!");
         return;
@@ -125,29 +88,8 @@ void Bridge<T>::sendMessage(string key, DataStruct *data){
     tcpSocket->write(package.c_str(), sizeof(char)*package.length());
 }
 
-//将收到的数据转交给对应的消息处理成函数进行处理，成功返回0
-template <class T>
-int Bridge<T>::execHandle(QString keyword, QString content){
-    if(keyword.length()<2 || keyword.contains(" ") || content=="" ){
-        qDebug()<<"[bridge.cpp => execHandle()]： argument illeagle";
-        return -1;
-    }
-    if(funcMap.find(keyword)==funcMap.end()){
-        qDebug()<<"[bridge.cpp => execHandle()]： no such key, keyword="+keyword;
-        return -1;
-    }
-    funcTypeP func = funcMap[keyword];
-    int res = (OBJ_class->*func)(content);
-    if (res < 0){
-        qDebug()<<"[bridge.cpp => execHandle()]：handle func run fail, keyword="+keyword;
-        return -1;
-    }
-    return 0;
-}
-
 //读取并处理从服务端收到的数据
-template <class T>
-void Bridge<T>::SocketReadData(){
+void Bridge::SocketReadData(){
     while(readDataLock);
     readDataLock = true;
     char buffer[10241];
@@ -191,4 +133,51 @@ void Bridge<T>::SocketReadData(){
     }
     readDataLock = false;
     return;
+}
+
+//=========================== Handle Class ============
+
+//为target_class赋值
+int Bridge::regisitClaas(void *classP){
+    if(classP==nullptr){
+        return -1;
+    }
+    if(target_class!=nullptr){
+        return -1;
+    }
+    target_class = classP;
+    return 0;
+}
+
+//注册消息处理函数，
+int Bridge::regisitFunc(QString keyword, funcTypeP func){
+    if(keyword.length()<3 || keyword.contains(" ") || func==nullptr ){
+        qDebug()<<"[bridge.cpp => regisitFunc()]： argument illeagle";
+        return -1;
+    }
+    if(funcMap.find(keyword)!=funcMap.end()){
+        qDebug()<<"[bridge.cpp => regisitFunc()]： keyword already regisited, keyword="+keyword;
+        return -1;
+    }
+    funcMap[keyword] = func;
+    return 0;
+}
+
+//将收到的数据转交给对应的消息处理成函数进行处理，成功返回0
+int Bridge::execHandle(QString keyword, QString content){
+    if(keyword.length()<2 || keyword.contains(" ") || content=="" ){
+        qDebug()<<"[bridge.cpp => execHandle()]： argument illeagle";
+        return -1;
+    }
+    if(funcMap.find(keyword)==funcMap.end()){
+        qDebug()<<"[bridge.cpp => execHandle()]： no such key, keyword="+keyword;
+        return -1;
+    }
+    funcTypeP func = funcMap[keyword];
+    int res = (*func)( target_class, content);
+    if (res < 0){
+        qDebug()<<"[bridge.cpp => execHandle()]：handle func run fail, keyword="+keyword;
+        return -1;
+    }
+    return 0;
 }

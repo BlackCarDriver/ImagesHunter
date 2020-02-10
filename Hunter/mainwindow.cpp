@@ -12,8 +12,8 @@ MainWindow::MainWindow(QWidget *parent):QMainWindow(parent) ,ui(new Ui::MainWind
     ui->static_list->horizontalHeader()->setStretchLastSection(true);
 
     //初始化bridge
-    bridge = new Bridge<MainWindow>();
-    bridge->regisitClass(this);
+    bridge = new Bridge();
+    bridge->regisitClaas(this);
     //等待socket连接
     int suc = bridge->start();
     if (suc>=0){
@@ -49,7 +49,7 @@ MainWindow::MainWindow(QWidget *parent):QMainWindow(parent) ,ui(new Ui::MainWind
     setWidgetState(false);
 
     //注册消息处理函数
-    bridge->regisitFunc("test", &MainWindow::test);
+    bridge->regisitFunc("test", test);
 }
 
 MainWindow::~MainWindow(){
@@ -180,22 +180,26 @@ QString MainWindow::getConfig(){
 
 //========================= 消息处理函数 =========================
 
-int MainWindow::test( QString content){
+int MainWindow::test(void *thisP, QString content){
+    MainWindow *This = static_cast<MainWindow*>(thisP);
     qDebug()<<"test content="<<content;
     return 0;
 }
 
-int MainWindow::errorHandle( QString content){
-    QMessageBox::information(this, "go error", content);
+int MainWindow::errorHandle(void *thisP, QString content){
+    MainWindow *This = static_cast<MainWindow*>(thisP);
+    QMessageBox::information(This, "go error", content);
     return 0;
 }
 
-int MainWindow::tableHandle( QString content){
+int MainWindow::tableHandle(void *thisP, QString content){
+    MainWindow *This = static_cast<MainWindow*>(thisP);
     qDebug()<<"test content="<<content;
     return 0;
 }
 
-int MainWindow::staticHandle( QString content){
+int MainWindow::staticHandle(void *thisP, QString content){
+     MainWindow *This = static_cast<MainWindow*>(thisP);
     qDebug()<<"test content="<<content;
     return 0;
 }
