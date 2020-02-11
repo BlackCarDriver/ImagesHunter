@@ -15,8 +15,8 @@ public:
     MainWindow(QWidget *parent = nullptr);
     ~MainWindow();
 
-private: //消息处理函数
-    static int test(void *thisP, QString content);
+public: //消息处理函数
+    static int debugHandle(void *thisP, QString content);
     static int errorHandle(void *thisP, QString content);
     static int infoHandle(void *thisP, QString content);
     static int tableHandle(void *thisP, QString content);
@@ -24,12 +24,9 @@ private: //消息处理函数
 
 private slots:
     void on_btn_start_clicked();
-    void messageHandle(QString key, QString content);
-    void functionHandle(QString key);
-
     void on_pushButton_clicked();
-
     void on_btn_stop_clicked();
+    void functionHandle(QString key);
 
 private:
     Ui::MainWindow *ui;

@@ -17,7 +17,8 @@ MainWindow::MainWindow(QWidget *parent):QMainWindow(parent) ,ui(new Ui::MainWind
     //等待socket连接
     int suc = bridge->start();
     if (suc>=0){
-       //connect(bridge, SIGNAL(sendSignal(QString)), this, SLOT(functionHandle(QString)));
+        //通过下面这个信号槽来实现在bridge中对mainwindows进行控制
+       connect(bridge, SIGNAL(sendSignal(QString)), this, SLOT(functionHandle(QString)));
     }else{
        QMessageBox::warning(this, "Error", "Fail when listen at localhost:4747!");
     }
@@ -49,7 +50,11 @@ MainWindow::MainWindow(QWidget *parent):QMainWindow(parent) ,ui(new Ui::MainWind
     setWidgetState(false);
 
     //注册消息处理函数
-    bridge->regisitFunc("test", test);
+    bridge->regisitFunc("debug", debugHandle);
+    bridge->regisitFunc("error", errorHandle);
+    bridge->regisitFunc("info", infoHandle);
+    bridge->regisitFunc("table", tableHandle);
+    bridge->regisitFunc("static", staticHandle);
 }
 
 MainWindow::~MainWindow(){
@@ -73,47 +78,6 @@ void MainWindow::functionHandle(QString key){
     }
     if(key=="disconnect"){
         ui->static_progressbar->setValue(100);
-    }
-    return;
-}
-
-//messageHandle handle the data or message get from go
-void MainWindow::messageHandle(QString key, QString content){
-    qDebug()<<"Message key:  "<<key;
-    if(key=="error"){
-        QMessageBox::information(this, "go error", content);
-        return;
-    }
-    if(key=="info"){
-        QMessageBox::information(this, "go info", content);
-    }
-    if(key=="table"){
-        QStringList res = content.replace("\\ ", " ").split(' ');
-        if(res.length()<4){
-            qDebug()<<"length of table data smaller than 4!";
-            return;
-        }
-        int i = ui->static_list->rowCount();
-        ui->static_list->insertRow(i);
-        ui->static_list->setItem(i, 0, new QTableWidgetItem(res[0]));
-        ui->static_list->setItem(i, 1, new QTableWidgetItem(res[1]));
-        ui->static_list->setItem(i, 2, new QTableWidgetItem(res[2]));
-        ui->static_list->setItem(i, 3, new QTableWidgetItem(res[3]));
-        return;
-    }
-    if(key=="static"){
-        QStringList res = content.split(' ');
-        if (res.length()!=7){
-            qDebug()<<"length of static data not correct!";
-            return;
-        }
-        ui->lable_res_number->setText(res[0]);
-        ui->lable_res_size->setText(res[1]);
-        ui->lable_res_length->setText(res[2]);
-        ui->lable_res_page->setText(res[3]);
-        ui->label_res_speed->setText(res[4]);
-        ui->lable_res_time->setText(res[5]);
-        ui->static_progressbar->setValue(res[6].toInt());
     }
     return;
 }
@@ -178,31 +142,6 @@ QString MainWindow::getConfig(){
       return configStr;
 }
 
-//========================= 消息处理函数 =========================
-
-int MainWindow::test(void *thisP, QString content){
-    MainWindow *This = static_cast<MainWindow*>(thisP);
-    qDebug()<<"test content="<<content;
-    return 0;
-}
-
-int MainWindow::errorHandle(void *thisP, QString content){
-    MainWindow *This = static_cast<MainWindow*>(thisP);
-    QMessageBox::information(This, "go error", content);
-    return 0;
-}
-
-int MainWindow::tableHandle(void *thisP, QString content){
-    MainWindow *This = static_cast<MainWindow*>(thisP);
-    qDebug()<<"test content="<<content;
-    return 0;
-}
-
-int MainWindow::staticHandle(void *thisP, QString content){
-     MainWindow *This = static_cast<MainWindow*>(thisP);
-    qDebug()<<"test content="<<content;
-    return 0;
-}
 
 //========================= 按钮点击事件 =========================
 
@@ -210,7 +149,7 @@ int MainWindow::staticHandle(void *thisP, QString content){
 void MainWindow::on_btn_start_clicked(){
     simpleStr *conf = new simpleStr;
     if(ui->btn_start->text()=="暂停"){
-         ui->btn_stop->setEnabled(false);
+        ui->btn_stop->setEnabled(false);
         conf->init("");
         bridge->sendMessage("pause", conf);
         ui->btn_start->setText("开始");
@@ -243,3 +182,64 @@ void MainWindow::on_pushButton_clicked(){
    return;
 }
 
+
+//========================= 消息处理函数 =========================
+
+//debug消息处理
+int MainWindow::debugHandle(void *thisP, QString content){
+    MainWindow *This = static_cast<MainWindow*>(thisP);
+    qDebug()<<"[mainwindows.cpp -> debugHandle()] content="<<content;
+    QMessageBox::information(This, "debug", "content="+content);
+    return 0;
+}
+
+//报错消息处理
+int MainWindow::errorHandle(void *thisP, QString content){
+    MainWindow *This = static_cast<MainWindow*>(thisP);
+    qDebug()<<"[mainwindows.cpp -> errorHandle()] message="<<content;
+    QMessageBox::information(This, "Error", "Receive a error from go:"+content);
+    return 0;
+}
+
+//普通消息处理
+int MainWindow::infoHandle(void *thisP, QString content){
+    MainWindow *This = static_cast<MainWindow*>(thisP);
+    qDebug()<<"[mainwindows.cpp -> infoHandle()] message="<<content;
+    QMessageBox::information(This, "Error", "Receive a info from go:"+content);
+    return 0;
+}
+
+//将受到的数据插入到下载报告列表里面的新行
+int MainWindow::tableHandle(void *thisP, QString content){
+    MainWindow *This = static_cast<MainWindow*>(thisP);
+    QStringList res = content.replace("\\ ", " ").split(' ');
+    if(res.length()<4){
+        qDebug()<<"length of table data smaller than 4!";
+        return -1;
+    }
+    int i = This->ui->static_list->rowCount();
+    This->ui->static_list->insertRow(i);
+    This->ui->static_list->setItem(i, 0, new QTableWidgetItem(res[0]));
+    This->ui->static_list->setItem(i, 1, new QTableWidgetItem(res[1]));
+    This->ui->static_list->setItem(i, 2, new QTableWidgetItem(res[2]));
+    This->ui->static_list->setItem(i, 3, new QTableWidgetItem(res[3]));
+    return 0;
+}
+
+//更新统计信息（总耗时， 总大小等...）
+int MainWindow::staticHandle(void *thisP, QString content){
+    MainWindow *This = static_cast<MainWindow*>(thisP);
+    QStringList res = content.split(' ');
+    if (res.length()!=7){
+        qDebug()<<"length of static data not correct!";
+        return -1;
+    }
+    This->ui->lable_res_number->setText(res[0]);
+    This->ui->lable_res_size->setText(res[1]);
+    This->ui->lable_res_length->setText(res[2]);
+    This->ui->lable_res_page->setText(res[3]);
+    This->ui->label_res_speed->setText(res[4]);
+    This->ui->lable_res_time->setText(res[5]);
+    This->ui->static_progressbar->setValue(res[6].toInt());
+    return 0;
+}

@@ -2,8 +2,11 @@
 #include "datastruct.h"
 #include<QDebug>
 #include<QMessageBox>
-
 using namespace std;
+
+//一些配置
+const bool IF_RUN_LAST_BUILD = false;           //是否使用指定命令来启动go
+const QString EXEC_GO_COMMAND = "./main.exe";   //启动已构建的go程序的命令
 
 Bridge::Bridge(QWidget *parent):QWidget(parent){
     tcpServer = new QTcpServer();
@@ -21,7 +24,9 @@ int Bridge::start(){
     connect(tcpServer, SIGNAL(newConnection()), this, SLOT(MakeSocketConnection()));
     qDebug()<<QDir::currentPath();
     QProcess *pro = new QProcess(Q_NULLPTR);
-    pro->start("./main.exe");
+    if(IF_RUN_LAST_BUILD){
+       pro->start(EXEC_GO_COMMAND);     //运行同目录下已构建的go
+    }
     return 0;
 }
 
@@ -32,6 +37,7 @@ void Bridge::MakeSocketConnection(){
     if(!tcpSocket){
            QMessageBox::warning(this, "Msg", "Connect Fail!");
     } else {
+           qDebug()<<"connect success...";
            Isconnected = true;
            emit sendSignal("connect_success");
            connect(tcpSocket, SIGNAL(readyRead()), this, SLOT(SocketReadData()));
