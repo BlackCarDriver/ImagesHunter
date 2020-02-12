@@ -6,6 +6,7 @@ import (
 	"time"
 
 	"./bridge"
+	"./digger"
 	"github.com/astaxie/beego/logs"
 )
 
@@ -61,19 +62,37 @@ func TestHandler(content string) error {
 
 //开始图片获取功能
 func StartHunter(content string) error {
+	var err error
 	fmt.Println("TODO: startHunter(), content=" + content)
+	err = digger.StartDigger(content)
+	if err != nil {
+		logs.Error(err)
+		return nil
+	}
 	return nil
 }
 
 //暂停正在进行的图片捕获功能
 func PauseHunter(content string) error {
+	var err error
 	fmt.Println("TODO: PauseHunter(), content=" + content)
+	err = digger.PauseDigger()
+	if err != nil {
+		logs.Error(err)
+		return err
+	}
 	return nil
 }
 
 //终止正在进行的图片捕获功能
 func StopHunter(content string) error {
+	var err error
 	fmt.Println("TODO: StopHunter(), content=" + content)
+	err = digger.StopDigger()
+	if err != nil {
+		logs.Error(err)
+		return err
+	}
 	return nil
 }
 

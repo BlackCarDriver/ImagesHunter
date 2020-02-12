@@ -58,7 +58,7 @@ func digLinkUrls(url string) []string {
 	//extract some right and first_times_used url from <a/>
 	for _, a := range aTags {
 		aurl := getHref(a, url)
-		if !canUsed(aurl) { //synax not right or already check before or out of basehref
+		if !isHaveSpecifHref(aurl) { //synax not right or already check before or out of basehref
 			//errLog.Println(aurl)
 			continue
 		}
@@ -129,25 +129,10 @@ func analyze(url string) {
 		fmt.Println(err)
 		return
 	}
-	fmt.Printf("%s   ----------> %v \n", url, resp.Status)
+	fmt.Printf("%s ----------> %v \n", url, resp.Status)
 }
 
 //=================== tools function place below =================================
-
-//return if a url is checked by it function before
-//if a url have a worng syntax will also return false
-func canUsed(url string) bool {
-	if !strings.HasPrefix(url, "http") {
-		return false
-	}
-	identi := getUrlPath(url)
-	if url_map[identi] {
-		return false
-	} else {
-		url_map[identi] = true
-	}
-	return true
-}
 
 //get a string to identified urls to same path
 //called by wasUsed
@@ -156,24 +141,4 @@ func getUrlPath(url string) string {
 	url = url[tindex+1:]
 	url = strings.Trim(url, `/`)
 	return url
-}
-
-func hasPageTag(atag string) bool {
-	if page_tag == "" {
-		return false
-	}
-	if strings.Index(atag, page_tag) < 0 {
-		return false
-	}
-	return true
-}
-
-func hasTargetTag(atag string) bool {
-	if target_tag == "" {
-		return true
-	}
-	if strings.Index(atag, target_tag) < 0 {
-		return false
-	}
-	return true
 }
