@@ -22,9 +22,14 @@ func main() {
 		logs.Error(err)
 		os.Exit(1)
 	}
+	// test1()
+	digger.TEST1()
+
 	//注册消息处理函数
 	myBridge.RegisterFunc("test", TestHandler)
 	myBridge.RegisterFunc("start", StartHunter)
+	myBridge.RegisterFunc("pause", PauseHunter)
+	myBridge.RegisterFunc("continue", ContinueHunter)
 	myBridge.RegisterFunc("stop", StopHunter)
 
 	fmt.Println("Start ListenAndServer()...")
@@ -33,6 +38,21 @@ func main() {
 	if err != nil {
 		logs.Error(err)
 	}
+}
+
+func test1() {
+	content := "BFS D:/TEMP 100 1000 5 5 10240 10 0 https://tieba.baidu.com/index.html redirects&npspkeyword target&npspkeyword 0 0"
+	err := StartHunter(content)
+	if err != nil {
+		logs.Error(err)
+	} else {
+		logs.Info("Test success!")
+	}
+	os.Exit(0)
+}
+
+func test2() {
+
 }
 
 //===================== 消息处理函数 ==============
@@ -77,6 +97,18 @@ func PauseHunter(content string) error {
 	var err error
 	fmt.Println("TODO: PauseHunter(), content=" + content)
 	err = digger.PauseDigger()
+	if err != nil {
+		logs.Error(err)
+		return err
+	}
+	return nil
+}
+
+//恢复正在暂停的任务
+func ContinueHunter(content string) error {
+	var err error
+	fmt.Println("TODO: ContinueHunter(), content=" + content)
+	err = digger.ContinueDigger()
 	if err != nil {
 		logs.Error(err)
 		return err
@@ -217,15 +249,3 @@ func SignalHandler(signal *bridge.Unit) error {
 */
 
 //========== tools function ==============
-
-//check if a directory is exist  📂
-func checkDirExist(dir string) bool {
-	info, err := os.Stat(dir)
-	if err != nil {
-		if !os.IsNotExist(err) {
-			logs.Error("error with file exist: %v", err)
-		}
-		return false
-	}
-	return info.IsDir()
-}

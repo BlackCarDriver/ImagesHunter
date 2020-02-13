@@ -100,24 +100,24 @@ QString MainWindow::getConfig(){
       int tabSelect = ui->methodTag->currentIndex();
       switch (tabSelect) {
         case 0: //bfs
-          method = "bfs";
+          method = "BFS";
           baseUrl = ( ui->edit_bfs_url->text()==""? "-":ui->edit_bfs_url->text());
           lineKey = (ui->edit_bfs_lineKey->text()==""?"-":ui->edit_bfs_lineKey->text());
           targetKey = (ui->edit_bfs_targetKey->text()==""?"-":ui->edit_bfs_targetKey->text());
           break;
         case 1: //dfs
-          method = "dfs";
+          method = "DFS";
           baseUrl = (ui->edit_dfs_url->text()==""?"-":ui->edit_dfs_url->text());
           lineKey = (ui->edit_dfs_lineKey->text()==""?"-":ui->edit_dfs_lineKey->text());
           targetKey = (ui->edit_dfs_targetKey->text()==""?"-":ui->edit_dfs_targetKey->text());
           break;
         case 2: //for loop
-          method = "forloop";
+          method = "FOR";
           baseUrl = (ui->edit_for_url->text()==""?"-":ui->edit_for_url->text());
           targetKey = (ui->edit_for_targetKey->text()==""?"-":ui->edit_for_targetKey->text());
           break;
         case 3: //list
-          method = "urllist";
+          method = "LIST";
           baseUrl = (ui->textEdit_urlList->placeholderText()==""?"-":ui->textEdit_urlList->placeholderText());
           break;
       }
@@ -150,11 +150,11 @@ void MainWindow::on_btn_start_clicked(){
     simpleStr *conf = new simpleStr;
     if(ui->btn_start->text()=="暂停"){
         ui->btn_stop->setEnabled(false);
-        conf->init("");
+        conf->init(".....");
         bridge->sendMessage("pause", conf);
         ui->btn_start->setText("开始");
     }else{
-         ui->btn_stop->setEnabled(true);
+        ui->btn_stop->setEnabled(true);
         conf->init(getConfig());
         bridge->sendMessage("start", conf);
         qDebug()<<conf->toString();
