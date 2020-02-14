@@ -22,8 +22,7 @@ func main() {
 		logs.Error(err)
 		os.Exit(1)
 	}
-	// test1()
-	digger.TEST1()
+	test1()
 
 	//注册消息处理函数
 	myBridge.RegisterFunc("test", TestHandler)
@@ -40,19 +39,22 @@ func main() {
 	}
 }
 
+//模拟 QT 端点击开始按钮
 func test1() {
-	content := "BFS D:/TEMP 100 1000 5 5 10240 10 0 https://tieba.baidu.com/index.html redirects&npspkeyword target&npspkeyword 0 0"
+	content := "BFS D:/TEMP 100 1000 5 5 10240 10 0 http://www.ruanyifeng.com/blog/ &empty &empty 0 0"
 	err := StartHunter(content)
+	time.Sleep(time.Second * 3)
 	if err != nil {
 		logs.Error(err)
 	} else {
-		logs.Info("Test success!")
+		logs.Info("Test complete!")
 	}
 	os.Exit(0)
 }
 
+//功能性测试
 func test2() {
-
+	digger.TEST1()
 }
 
 //===================== 消息处理函数 ==============
@@ -83,7 +85,7 @@ func TestHandler(content string) error {
 //开始图片获取功能
 func StartHunter(content string) error {
 	var err error
-	fmt.Println("TODO: startHunter(), content=" + content)
+	logs.Info("TODO: startHunter(), content=" + content)
 	err = digger.StartDigger(content)
 	if err != nil {
 		logs.Error(err)

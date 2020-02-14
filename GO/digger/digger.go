@@ -150,7 +150,7 @@ func StopDigger() error {
 //============================= 功能测试 =============================
 func TEST1() {
 	var link []string
-	if err := getAllSpeciicPageLink("https://tb1.bdstatic.com/", &TmphtmlCode, &link); err != nil {
+	if err := getAllSpeciicImgLink("https://tb1.bdstatic.com/", &TmphtmlCode, &link); err != nil {
 		logs.Error(err)
 		return
 	}
@@ -166,36 +166,77 @@ func TEST1() {
 //开始或继续BFS策略工作
 func runBFS() error {
 	var err error
-	pageHtml, url := "", "" //pageHtml暂存页面的html代码
-	if url = lastPageEle.Value.(string); url == "" {
-		err = errors.New("lastPageEle is empty string")
-		logs.Error(err)
-		return err
+	if diggerState != 0 {
+		return errors.New("diggerState not 0")
 	}
-	lastPageEle = lastPageEle.Next()
-	if err = getHtmlCodeOfUrl(url, &pageHtml); err != nil {
-		logs.Warn("getHtmlCodeOfUrl fail: url=%s  err=%v", url, err)
-		return err
+	if foundPageList.Len() < 1 {
+		return errors.New("foundPageList is empty")
 	}
-	//获取符合转跳条件的链接
-	var pagelink []string
-	if err = getAllSpeciicPageLink(url, &pageHtml, &pagelink); err != nil {
-		logs.Error("Get specific pagelink from pageHtml fail: err=%v", err)
-		return err
-	}
-	if len(pagelink) == 0 {
-		logs.Warn("No pagelink found in pageHtml, url=%v", url)
-	}
-	//获取所有符合条件的图片链接
-	var imgLink []string
-	if err = getAllSpeciicImgLink(url, &pageHtml, &imgLink); err != nil {
-		logs.Error("Get specific images link from pageHtml fail: err=%v", err)
-		return err
-	}
-	if len(imgLink) == 0 {
-		logs.Warn("No images link found in pageHtml, url=%v", url)
-	}
-
+	//开始BFS
+	diggerState = 1
+	go func() {
+		for diggerState == 1 {
+			pageHtml, url := "", "" //pageHtml暂存页面的html代码
+			var imgLink []string    //暂存图片链接
+			var pagelink []string   //暂存转跳链接
+			//取出页面队列的第一个元素
+			if url = lastPageEle.Value.(string); url == "" {
+				logs.Error("lastPageEle is empty string")
+				goto end
+			}
+			//发送http请求获取页面代码
+			if err = getHtmlCodeOfUrl(url, &pageHtml); err != nil {
+				logs.Warn("getHtmlCodeOfUrl fail: url=%s  err=%v", url, err)
+				goto end
+			}
+			//直接过滤掉长度太短的页面代码
+			if len(pageHtml) < 1000 {
+				logs.Info("pageHtml not used because too short. length=%d", len(pageHtml))
+				goto end
+			}
+			//获取所有符合条件的图片链接，并加入到图片队列
+			if err = getAllSpeciicImgLink(url, &pageHtml, &imgLink); err != nil {
+				logs.Warn("Get specific images link from pageHtml fail: err=%v", err)
+			} else if len(imgLink) == 0 {
+				logs.Warn("No images link found in pageHtml, url=%v", url)
+			} else {
+				logs.Debug("found %d imgLink in %s", len(imgLink), url)
+				for _, value := range imgLink {
+					if imgUrlMap[value] == false {
+						foundImgList.PushBack(value)
+						imgUrlMap[value] = true
+						logs.Debug("new img: %s", value)
+					}
+				}
+			}
+			//获取符合转跳条件的链接
+			if err = getAllSpeciicPageLink(url, &pageHtml, &pagelink); err != nil {
+				logs.Error("Get specific pagelink from pageHtml fail: err=%v", err)
+			} else if len(pagelink) == 0 {
+				logs.Warn("No pagelink found in pageHtml, url=%v", url)
+			} else {
+				logs.Debug("found %d pagelink in %s", len(pagelink), url)
+				for _, value := range pagelink {
+					if pageUrlMap[value] == false {
+						foundPageList.PushBack(value)
+						pageUrlMap[value] = true
+						logs.Debug("new page: %s", value)
+					}
+				}
+			}
+		end:
+			//若页面队列已经到底，则BFS结束
+			if lastPageEle == foundPageList.Back() {
+				logs.Info("last element of foundPageList have been used...")
+				break
+			} else {
+				lastPageEle = lastPageEle.Next()
+				logs.Debug("take next element from lastPageList: %s", lastPageEle.Value.(string))
+			}
+		}
+		diggerState = 0
+		logs.Info("gorounting in runBFS() go to the end, imgList's length=%d   pageList's length=%d", foundImgList.Len(), foundPageList.Len())
+	}()
 	return nil
 }
 
@@ -276,12 +317,16 @@ func getAllSpeciicImgLink(baseUrl string, htmlCode *string, link *[]string) erro
 	//从<img>标签中筛选出链接，若配置有指定关键字则只从包含关键字的标签中取
 	regexpFindLink := regexp.MustCompile(`src="[^"]*`)
 	for i := 0; i < len(allATag); i++ {
-		if linkKey != "" && !strings.Contains(allATag[i], linkKey) {
+		if targetKey != "" && !strings.Contains(allATag[i], targetKey) {
 			continue
 		}
 		tmpLink := regexpFindLink.FindString(allATag[i])
 		if len(tmpLink) < 7 {
 			logs.Warn("find a danger url: %s", tmpLink)
+			continue
+		}
+		if len(tmpLink) > 400 {
+			logs.Warn("find a danger url, length=%d", len(tmpLink))
 			continue
 		}
 		tmpLink = tmpLink[5:] //去除src="前缀
@@ -337,6 +382,10 @@ func setUpConfig(config string) error {
 	if method == "BFS" || method == "DFS" {
 		lastPageEle = foundPageList.PushBack(baseUrl)
 	}
+	targetKey = strings.Replace(targetKey, "&empty", "", -1)
+	targetKey = strings.Replace(targetKey, "&space", " ", -1)
+	linkKey = strings.Replace(linkKey, "&empty", "", -1)
+	linkKey = strings.Replace(linkKey, "&space", " ", -1)
 	return nil
 }
 

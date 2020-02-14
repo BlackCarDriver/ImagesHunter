@@ -83,6 +83,7 @@ void MainWindow::functionHandle(QString key){
 }
 
 //从组件中获取用户设置的值,通过返回值返回
+//转换规则： 🐢
 QString MainWindow::getConfig(){
       //get basic config
       int sizeLimit = ui->spin_base_sizeLimit->value();
