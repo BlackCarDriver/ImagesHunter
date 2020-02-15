@@ -2,121 +2,150 @@ package digger
 
 import (
 	"bytes"
+	"container/list"
+	"errors"
 	"fmt"
 	"io"
 	"io/ioutil"
 	"net/http"
 	"os"
-	"regexp"
-	"strconv"
 	"strings"
+	"sync"
+	"time"
 
 	"github.com/astaxie/beego/logs"
 )
 
-//find img url from html code and download some of then according to the config
-func digAndSaveImgs(url string) {
-	//get all img link from html code
-	html, err := digHtml(url)
-	if err != nil {
-		logs.Warn(err)
-		return
+//等待图片队列的图片链接到达，自动下载图片到本地, number:同时下载图片的协程数量
+//本函数会导致堵塞，需要运行在单独的协程中直接程序结束
+func WaitImgAndDownload(numbers int) error {
+	if downloadState != 0 {
+		return errors.New("can't setup downloader becase downloadState != 0")
 	}
-	reg1, _ := regexp.Compile(`<img [^>]*>`)
-	imgTags := reg1.FindAllString(html, -1)
-	imgSlice := make([]string, 0)
-	for _, j := range imgTags {
-		imgSlice = append(imgSlice, getImgUrls(j, url)...)
+	if numbers < 1 || numbers > 20 {
+		return fmt.Errorf("numbers illegal: numbers=%d", numbers)
 	}
-	if len(imgSlice) == 0 {
-		return
+	downloadState = 1
+	defer func() {
+		downloadState = 0
+	}()
+	workersNum := numbers //空闲的下载协程
+	var workersMtx sync.Mutex
+	var lastDownLoad *list.Element
+	lastDownLoad = nil
+	//以一秒为间隔，监听图片队列的变化
+	ticker := time.NewTicker(1 * time.Second)
+	for _ = range ticker.C {
+		//外部可以通过downloadState来结束这个协程
+		if downloadState == 0 {
+			logs.Info("downloader shut down because state=0")
+			break
+		}
+		//队列为空发生在开始工作前，仅第一次有效
+		if foundImgList.Len() == 0 {
+			continue
+		}
+		//队列又空边成非空后，获取的第一个元素才有意义。仅第一次有效
+		if lastImgEle == nil && lastDownLoad == nil {
+			lastImgEle = foundImgList.Front()
+		}
+		//处理上次由于遇到队列尾部而终止，但是之后队列新增元素的情况
+		if lastImgEle == nil && lastDownLoad.Next() != nil {
+			lastImgEle = lastDownLoad
+		}
+		//从图片队列中取尽可能多的链接出来进行下载
+		for {
+			//退出循环条件：下载协程数用尽、队列遇到末尾、用户暂停
+			if lastImgEle == nil || workersNum == 0 || diggerState != 1 {
+				break
+			}
+			imgUrl := lastImgEle.Value.(string)
+			lastDownLoad = lastImgEle      //非空值
+			lastImgEle = lastImgEle.Next() //可能为空值
+			if !isImgUrl(imgUrl) {
+				logs.Warn("skip a fake imgUrl: imgUrl=%s", imgUrl)
+				continue
+			}
+			go func() {
+				workersMtx.Lock()
+				workersNum--
+				workersMtx.Unlock()
+				err := DownLoadImg(imgUrl)
+				if err != nil {
+					logs.Warn("Download Images fail: url=%s  err=%v", imgUrl, err)
+				}
+				workersMtx.Lock()
+				workersNum++
+				workersMtx.Unlock()
+			}()
+		}
 	}
-	logs.Info("url     [  %s  ]\n", url)
-	logs.Info("<img>   [  %-6d  ]\n", len(imgSlice))
-	//create some goroutine and distribute the workes
-	urlChan := make(chan string, 100)
-	resChan := make(chan int, 20)
-	for i := 0; i < threadLimit; i++ {
-		imgDownLoader(i, urlChan, resChan)
-	}
-	for _, j := range imgSlice { //begin to download images
-		urlChan <- j
-	}
-	//wait for images download complete
-	close(urlChan)
-	close(resChan)
+	return nil
 }
 
-//used to distribute download_workes for mutil goroutine
-//called by digAndSaveImgs()
-func imgDownLoader(no int, urlChan <-chan string, resChan chan<- int) {
-	for url := range urlChan {
-		//这里加上是否继续的判断条件 🐢
-		resChan <- downLoadImages(url)
-	}
+//检查url是否符合图片链接的格式
+func isImgUrl(imgUrl string) bool {
+	imgUrl = strings.ToLower(imgUrl)
+	return regexpIsImgUrl.MatchString(imgUrl)
 }
 
-//=============================== the following is tools functions ================================
-
-//download an image specied by url
-func downLoadImages(imgUrl string) int {
+//根据Url，制定一个将保存的图片的文件名
+func getName(imgUrl string) (string, error) {
 	if !isImgUrl(imgUrl) {
-		return 1
+		return "", fmt.Errorf("imgUrl format not pass: imgUrl=%s", imgUrl)
 	}
-	resp, err := http.Get(imgUrl)
+	lastDotIdx := strings.LastIndex(imgUrl, ".")
+	lastSlashIdx := strings.LastIndex(imgUrl, "/")
+	if lastSlashIdx < 0 {
+		lastSlashIdx = 0
+	}
+	suffix := imgUrl[lastDotIdx:] //获取扩展名,包括‘.’
+	prefix := imgUrl[lastSlashIdx+1 : lastDotIdx]
+	getNameMutex.Lock()
+	index := totalNumber //获取文件编号
+	totalNumber++
+	getNameMutex.Unlock()
+	newName := fmt.Sprintf("%d_%s%s", index, prefix, suffix)
+	return newName, nil
+}
+
+//下载图片到配置指定的目录
+func DownLoadImg(imgUrl string) error {
+	logs.Debug("DownLoadImg(): imgUrl=%s", imgUrl)
+	if !isImgUrl(imgUrl) {
+		return fmt.Errorf("not a images url: url=%s", imgUrl)
+	}
+	resp, err := mainClient.Get(imgUrl)
 	if err != nil {
-		return 2
+		return err
+	}
+	if resp.StatusCode != http.StatusOK {
+		return fmt.Errorf("response status not ok: url=%s  statusCode=%d", imgUrl, resp.StatusCode)
 	}
 	body, err := ioutil.ReadAll(resp.Body)
 	if err != nil {
-		return 3
+		return fmt.Errorf("ioutil ReadAll fail: %v", err)
 	}
+	//文件大小检验
 	imgSize := len(body)
-	if imgSize == 0 {
-		return 4
+	if imgSize < minSizeLimit*1024 || imgSize > maxSizeLimit*1024 {
+		return fmt.Errorf("imgSize over limited: size=%d", imgSize)
 	}
-	if imgSize < minSizeLimit*1024 {
-		return 5
-	}
-	if imgSize > maxSizeLimit*1048576 {
-		return 6
-	}
-	imgName := getName(imgUrl)
-	updateTotalSize(imgSize)
+	//更新统计数值
+	updataSizeMutex.Lock()
+	totalBytes += imgSize
+	updataSizeMutex.Unlock()
+	//保存文件到本地
+	imgName, _ := getName(imgUrl)
 	imgPath := fmt.Sprint(savePath, string(os.PathSeparator), imgName)
 	out, err := os.Create(imgPath)
 	defer out.Close()
 	if err != nil {
-		logs.Error("%s  ----> error: %v \n", imgPath, err)
-		return 7
+		return fmt.Errorf("Create file fail: err=%v", err)
 	}
 	_, err = io.Copy(out, bytes.NewReader(body))
 	if err != nil {
-		return 8
+		return fmt.Errorf("copy images fail, err=%v", err)
 	}
-	return 0
-}
-
-//get a file name for download images
-func getName(name string) string {
-	suffix := name[strings.LastIndex(name, "."):]
-	getNameMutex.Lock()
-	newName := strconv.Itoa(totalNumber) + suffix
-	totalNumber++
-	getNameMutex.Unlock()
-	return newName
-}
-
-//record the size of download images
-func updateTotalSize(addBytes int) {
-	updataSizeMutex.Lock()
-	totalBytes += addBytes
-	updataSizeMutex.Unlock()
-}
-
-//judge if a url is a link to an images
-func isImgUrl(imgUrl string) bool {
-	reg, _ := regexp.Compile(`[^"]*.(jpg|png|jpeg|gif|ico)$`)
-	imgUrl = strings.ToLower(imgUrl)
-	return reg.MatchString(imgUrl)
+	return nil
 }

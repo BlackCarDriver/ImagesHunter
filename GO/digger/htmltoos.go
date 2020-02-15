@@ -37,6 +37,8 @@ func getHtmlCodeOfUrl(url string, htmlCode *string) error {
 	return nil
 }
 
+//=================================== Old Code =============================
+
 func DigPWithClass(target, class string) (ps []string, err error) {
 	var html string
 	html, err = digHtml(target)

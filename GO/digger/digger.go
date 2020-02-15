@@ -59,6 +59,7 @@ var (
 //一些全局变量或对象
 var (
 	diggerState     int32        //工作状态：0未开始或已终止，1运行中，2暂停中
+	downloadState   int32        //工作状态：0未启动，1已启动
 	randMachine     *rand.Rand   //用户创建随机数的对象
 	mainClient      *http.Client //用于发送http请求的客户端对象
 	getNameMutex    *sync.Mutex  //同步锁，生成随机数时用
@@ -69,10 +70,12 @@ var (
 var (
 	regexpFindAllATag   *regexp.Regexp //找出所有的 <a> 标签
 	regexpFindAllImgTag *regexp.Regexp //找出所有的 <img> 标签
+	regexpIsImgUrl      *regexp.Regexp //判断是否一个图片链接
 )
 
 func init() {
 	diggerState = 0 //未开始
+	downloadState = 0
 	randMachine = rand.New(rand.NewSource(time.Now().UnixNano()))
 	mainClient = new(http.Client)
 	foundPageList = list.New()
@@ -85,9 +88,13 @@ func init() {
 	} else {
 		mainClient.Jar = tmpJar
 	}
+	//初始化同步锁
+	updataSizeMutex = new(sync.Mutex)
+	getNameMutex = new(sync.Mutex)
 	//未经测试修改以下正则可能引发panic
 	regexpFindAllATag = regexp.MustCompile(`<a [^>]*href=[^>]*>`)
 	regexpFindAllImgTag = regexp.MustCompile(`<img [^>]*src=[^>]*>`)
+	regexpIsImgUrl = regexp.MustCompile(`[^"]*.(jpg|png|jpeg|gif|ico)$`)
 }
 
 //开始工作，config 为指定工作方式的配置说明
@@ -101,6 +108,7 @@ func StartDigger(config string) error {
 		logs.Warn("Can't not visit BaseUrl, err=%v", err)
 		return err
 	}
+	initStaticValue()
 	err = ContinueDigger() //开始工作
 	if err != nil {
 		logs.Error("Start or continue fail: %v", err)
@@ -176,6 +184,10 @@ func runBFS() error {
 	diggerState = 1
 	go func() {
 		for diggerState == 1 {
+			if pageNumber > 2 { //测试时暂时只爬2页
+				logs.Info("exit digger because page come to 2")
+				break
+			}
 			pageHtml, url := "", "" //pageHtml暂存页面的html代码
 			var imgLink []string    //暂存图片链接
 			var pagelink []string   //暂存转跳链接
@@ -184,6 +196,7 @@ func runBFS() error {
 				logs.Error("lastPageEle is empty string")
 				goto end
 			}
+			pageNumber++
 			//发送http请求获取页面代码
 			if err = getHtmlCodeOfUrl(url, &pageHtml); err != nil {
 				logs.Warn("getHtmlCodeOfUrl fail: url=%s  err=%v", url, err)
@@ -200,12 +213,11 @@ func runBFS() error {
 			} else if len(imgLink) == 0 {
 				logs.Warn("No images link found in pageHtml, url=%v", url)
 			} else {
-				logs.Debug("found %d imgLink in %s", len(imgLink), url)
 				for _, value := range imgLink {
 					if imgUrlMap[value] == false {
 						foundImgList.PushBack(value)
 						imgUrlMap[value] = true
-						logs.Debug("new img: %s", value)
+						// logs.Debug("new img: %s", value)
 					}
 				}
 			}
@@ -215,15 +227,15 @@ func runBFS() error {
 			} else if len(pagelink) == 0 {
 				logs.Warn("No pagelink found in pageHtml, url=%v", url)
 			} else {
-				logs.Debug("found %d pagelink in %s", len(pagelink), url)
 				for _, value := range pagelink {
 					if pageUrlMap[value] == false {
 						foundPageList.PushBack(value)
 						pageUrlMap[value] = true
-						logs.Debug("new page: %s", value)
+						// logs.Debug("new page: %s", value)
 					}
 				}
 			}
+			logs.Info("url:%s	pageLen:%d	imgNum:%d	linkNum:%d", url, len(pageHtml), len(imgLink), len(pagelink))
 		end:
 			//若页面队列已经到底，则BFS结束
 			if lastPageEle == foundPageList.Back() {
@@ -231,7 +243,6 @@ func runBFS() error {
 				break
 			} else {
 				lastPageEle = lastPageEle.Next()
-				logs.Debug("take next element from lastPageList: %s", lastPageEle.Value.(string))
 			}
 		}
 		diggerState = 0
@@ -341,6 +352,7 @@ func getAllSpeciicImgLink(baseUrl string, htmlCode *string, link *[]string) erro
 }
 
 //处理指定工作方式的配置字符串，将其中的信息解析到全局变量之中
+//仅在第一开始、结束后重新开始时调用，暂停后继续不调用
 func setUpConfig(config string) error {
 	sucNum, err := fmt.Sscanf(config, "%s %s %d %d %d %d %d %d %d %s %s %s %d %d",
 		&method,
@@ -379,9 +391,17 @@ func setUpConfig(config string) error {
 	if foundImgList.Len() > 0 {
 		foundImgList.Init()
 	}
+	go func() {
+		err = WaitImgAndDownload(threadLimit)
+		if err != nil {
+			logs.Emergency(err)
+			os.Exit(1)
+		}
+	}()
 	if method == "BFS" || method == "DFS" {
 		lastPageEle = foundPageList.PushBack(baseUrl)
 	}
+	lastImgEle = foundImgList.Front()
 	targetKey = strings.Replace(targetKey, "&empty", "", -1)
 	targetKey = strings.Replace(targetKey, "&space", " ", -1)
 	linkKey = strings.Replace(linkKey, "&empty", "", -1)
@@ -452,6 +472,17 @@ func checkBaseConf() bool {
 		endPoint = tmp
 	}
 	return true
+}
+
+//初始化一些统计数值
+func initStaticValue() {
+	totalBytes = 0
+	totalNumber = 0
+	pageNumber = 0
+	tmpBytes = 0
+	totalTime = 0
+	lastTime = time.Now()
+	startTime = time.Now()
 }
 
 //获取用于表示当前工作状态报告信息的字符串 🐢
@@ -545,7 +576,11 @@ func CheckUrlAndConver(baseUrl string, targetUrl *string) error {
 	} else {
 		*targetUrl = converLink
 	}
-	//若本身为绝对路径则无需转换
+	//去除表示位置的内容
+	if idx := strings.Index(*targetUrl, "#"); idx > 0 {
+		*targetUrl = (*targetUrl)[0 : idx+1]
+	}
+	//若本身为绝对路径则无需继续
 	if target.IsAbs() {
 		return nil
 	}

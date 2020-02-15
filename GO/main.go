@@ -41,14 +41,14 @@ func main() {
 
 //模拟 QT 端点击开始按钮
 func test1() {
-	content := "BFS D:/TEMP 100 1000 5 5 10240 10 0 http://www.ruanyifeng.com/blog/ &empty &empty 0 0"
+	content := "BFS D:/TEMP 100 2 5 5 10240 10 0 http://www.ruanyifeng.com/blog/ &empty &empty 0 0"
 	err := StartHunter(content)
-	time.Sleep(time.Second * 3)
 	if err != nil {
 		logs.Error(err)
 	} else {
 		logs.Info("Test complete!")
 	}
+	time.Sleep(10 * time.Second)
 	os.Exit(0)
 }
 
