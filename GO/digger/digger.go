@@ -37,10 +37,10 @@ var (
 
 //一些统计数值
 var (
-	totalBytes  int       //已下载图片的总大小
-	totalNumber int       //已下载图片的中数量
-	pageNumber  int       //已经访问的页面数量
-	tmpBytes    int       //单位时间内下载图片的总大小
+	totalBytes  int       //已下载图片的总大小 (维护位置：DownLoadImg())
+	totalNumber int       //已下载图片的中数量 (维护位置：getName())
+	pageNumber  int       //已经访问的页面数量 (维护位置：getHtmlCodeOfUrl())
+	tmpBytes    int       //单位时间内下载图片的总大小 (维护位置： )
 	totalTime   int       //总运行时间，秒
 	lastTime    time.Time //上次统计下载速度的时间
 	startTime   time.Time //上次点击开始或继续的时间
@@ -59,11 +59,12 @@ var (
 //一些全局变量或对象
 var (
 	diggerState     int32        //工作状态：0未开始或已终止，1运行中，2暂停中
-	downloadState   int32        //工作状态：0未启动，1已启动
+	downloadState   int32        //图片下载功能状态：0未启动，1已启动
 	randMachine     *rand.Rand   //用户创建随机数的对象
 	mainClient      *http.Client //用于发送http请求的客户端对象
 	getNameMutex    *sync.Mutex  //同步锁，生成随机数时用
 	updataSizeMutex *sync.Mutex  //同步锁，更新已下载图片大小时用
+	resultChan      *chan string //用于发送图片下载的情况
 )
 
 //一些全局正则表达式对象
@@ -74,8 +75,10 @@ var (
 )
 
 func init() {
+	initStaticValue()
 	diggerState = 0 //未开始
 	downloadState = 0
+	resultChan = nil
 	randMachine = rand.New(rand.NewSource(time.Now().UnixNano()))
 	mainClient = new(http.Client)
 	foundPageList = list.New()
@@ -94,7 +97,7 @@ func init() {
 	//未经测试修改以下正则可能引发panic
 	regexpFindAllATag = regexp.MustCompile(`<a [^>]*href=[^>]*>`)
 	regexpFindAllImgTag = regexp.MustCompile(`<img [^>]*src=[^>]*>`)
-	regexpIsImgUrl = regexp.MustCompile(`[^"]*.(jpg|png|jpeg|gif|ico)$`)
+	regexpIsImgUrl = regexp.MustCompile(`https?://[^ "]*.(jpg|png|jpeg|gif|ico)$`)
 }
 
 //开始工作，config 为指定工作方式的配置说明
@@ -114,6 +117,19 @@ func StartDigger(config string) error {
 		logs.Error("Start or continue fail: %v", err)
 		return err
 	}
+	return nil
+}
+
+//设置用于返回图片下载情况的管道
+func SetupResultChan(newChan *chan string) error {
+	if newChan == nil {
+		return errors.New("newChan is nil")
+	}
+	if resultChan != nil {
+		return errors.New("setup resultChan fail because resultChan not nil")
+	}
+	resultChan = newChan
+	logs.Info("resultChan have been setup")
 	return nil
 }
 
@@ -157,19 +173,18 @@ func StopDigger() error {
 
 //============================= 功能测试 =============================
 func TEST1() {
-	var link []string
-	if err := getAllSpeciicImgLink("https://tb1.bdstatic.com/", &TmphtmlCode, &link); err != nil {
-		logs.Error(err)
-		return
+	for i := 0; i < 30; i++ {
+		err := sendResult("http:itisimgurl.com/testting", "OK", "test.jpg", i*10240)
+		if err != nil {
+			logs.Error(err)
+		}
+		time.Sleep(time.Millisecond * 100)
 	}
-	fmt.Println(len(link))
-	for i := 0; i < len(link); i++ {
-		fmt.Println(link[i])
-	}
-	os.Exit(0)
+	time.Sleep(time.Second)
+	os.Exit(1)
 }
 
-//============================= 私有函数/工具函数 =====================
+//============================= 执行策略 =====================
 
 //开始或继续BFS策略工作
 func runBFS() error {
@@ -269,87 +284,7 @@ func runLIST() error {
 	return nil
 }
 
-//获得htmlCode中全部符合配置指定的转跳链接，写到link[]中
-//baseUrl为获得页面的URL，用于将得到的相对链接转换成绝对链接
-func getAllSpeciicPageLink(baseUrl string, htmlCode *string, link *[]string) error {
-	if htmlCode == nil || *htmlCode == "" {
-		return errors.New("htmlCode is empty")
-	}
-	if *link == nil {
-		*link = make([]string, 0)
-	} else if len(*link) != 0 {
-		return errors.New("link[] not empty")
-	}
-	//先获取包含链接的<a>标签
-	allATag := regexpFindAllATag.FindAllString(*htmlCode, -1)
-	if len(allATag) == 0 {
-		logs.Warn("find zero <a> tag from htmlCode")
-		return nil
-	}
-	//从<a>标签中筛选出链接，若配置有指定关键字则只从包含关键字的标签中取
-	regexpFindLink := regexp.MustCompile(`href="[^"]*`)
-	for i := 0; i < len(allATag); i++ {
-		if linkKey != "" && !strings.Contains(allATag[i], linkKey) {
-			continue
-		}
-		tmpLink := regexpFindLink.FindString(allATag[i])
-		if len(tmpLink) < 7 {
-			logs.Warn("find a danger url: %s", tmpLink)
-			continue
-		}
-		tmpLink = tmpLink[6:] //去除href="前缀
-		//将相对链接转换成绝对链接
-		if err := CheckUrlAndConver(baseUrl, &tmpLink); err != nil {
-			logs.Warn("check url %s not pass, err=%v", tmpLink, err)
-			continue
-		}
-		*link = append(*link, tmpLink)
-	}
-	return nil
-}
-
-//获得htmlCode中全部符合配置指定的图片链接，写到link[]中
-//baseUrl为获得页面的URL，用于将得到的相对链接转换成绝对链接
-func getAllSpeciicImgLink(baseUrl string, htmlCode *string, link *[]string) error {
-	if htmlCode == nil || *htmlCode == "" {
-		return errors.New("htmlCode is empty")
-	}
-	if *link == nil {
-		*link = make([]string, 0)
-	} else if len(*link) != 0 {
-		return errors.New("link[] not empty")
-	}
-	//先获取包含链接的<img>标签
-	allATag := regexpFindAllImgTag.FindAllString(*htmlCode, -1)
-	if len(allATag) == 0 {
-		logs.Warn("find zero <img> tag from htmlCode")
-		return nil
-	}
-	//从<img>标签中筛选出链接，若配置有指定关键字则只从包含关键字的标签中取
-	regexpFindLink := regexp.MustCompile(`src="[^"]*`)
-	for i := 0; i < len(allATag); i++ {
-		if targetKey != "" && !strings.Contains(allATag[i], targetKey) {
-			continue
-		}
-		tmpLink := regexpFindLink.FindString(allATag[i])
-		if len(tmpLink) < 7 {
-			logs.Warn("find a danger url: %s", tmpLink)
-			continue
-		}
-		if len(tmpLink) > 400 {
-			logs.Warn("find a danger url, length=%d", len(tmpLink))
-			continue
-		}
-		tmpLink = tmpLink[5:] //去除src="前缀
-		//将相对链接转换成绝对链接
-		if err := CheckUrlAndConver(baseUrl, &tmpLink); err != nil {
-			logs.Warn("check url %s not pass, err=%v", tmpLink, err)
-			continue
-		}
-		*link = append(*link, tmpLink)
-	}
-	return nil
-}
+//======================= 次要流程 ==============
 
 //处理指定工作方式的配置字符串，将其中的信息解析到全局变量之中
 //仅在第一开始、结束后重新开始时调用，暂停后继续不调用
@@ -407,6 +342,103 @@ func setUpConfig(config string) error {
 	linkKey = strings.Replace(linkKey, "&empty", "", -1)
 	linkKey = strings.Replace(linkKey, "&space", " ", -1)
 	return nil
+}
+
+//保存图片成功后通过管道向qt端发送一条报告
+//size 的单位为字节
+func sendResult(imgUrl string, result string, saveName string, size int) error {
+	if imgUrl == "" || strings.Contains(imgUrl, " ") {
+		return errors.New("imgUrl is null or contain space")
+	}
+	if saveName == "" || strings.Contains(saveName, " ") {
+		return errors.New("saveName is null or contain space")
+	}
+	if result == "" || strings.Contains(result, " ") {
+		return errors.New("result is null or contain space")
+	}
+	if size < 0 {
+		return errors.New("size illeagle")
+	}
+	if resultChan == nil {
+		return errors.New("result chan not set up")
+	}
+	resultStr := fmt.Sprintf("%s %dKB %s %s", imgUrl, (size+1)/1024, result, saveName) //size+1避免0作除数
+	(*resultChan) <- resultStr
+	return nil
+}
+
+//获取用于表示当前工作状态报告信息的字符串 🐢
+func getReportString() (string, error) {
+	var err error
+	if diggerState == 0 { //未开始工作或已经终止
+		err = errors.New("Can't get report string because Digger is not working")
+		return "", err
+	}
+	duration := time.Since(lastTime)
+	lastTime = time.Now()
+	speed := duration.Seconds()
+	tmpBytes = 0
+	percentage := 30
+	reportString := fmt.Sprintf("%d %d %d %d %.2fKB/s %s %d", totalNumber, totalBytes, foundPageList.Len(),
+		pageNumber, speed, time.Since(startTime), percentage)
+	return reportString, nil
+}
+
+//检验一个url，且将相对地址转换为绝对地址,若有中文经过转码将会被还原 📇
+func CheckUrlAndConver(baseUrl string, targetUrl *string) error {
+	if baseUrl == "" {
+		return errors.New("baseUrl is empty")
+	}
+	if targetUrl == nil {
+		return errors.New("targetUrl is nil")
+	}
+	target, err := url.Parse(*targetUrl)
+	if err != nil {
+		return err
+	}
+	//将经过转码的URL字符串还原
+	if converLink, err := url.QueryUnescape(*targetUrl); err != nil {
+		logs.Warn("QueryUnescape url %s fail: err=%d", *targetUrl, err)
+	} else {
+		*targetUrl = converLink
+	}
+	//去除表示位置的内容
+	if idx := strings.Index(*targetUrl, "#"); idx > 0 {
+		*targetUrl = (*targetUrl)[0 : idx+1]
+	}
+	//若本身为绝对路径则无需继续
+	if target.IsAbs() {
+		return nil
+	}
+	base, err := url.Parse(baseUrl)
+	if err != nil {
+		return fmt.Errorf("BaseUrl not right. err=%v", err)
+	}
+	if !base.IsAbs() {
+		return errors.New("BaseUrl is not absolute url")
+	}
+	*targetUrl = fmt.Sprintf("%s://%s%s", base.Scheme, base.Host, target.Path)
+	return nil
+}
+
+//================ 非核心功能代码 ===================
+
+//判断 baseurl 格式是否正确可用
+func isBaseUrlRight(baseurl string) bool {
+	regHttpUrl := regexp.MustCompile(`https?://[^ "]*`)
+	return regHttpUrl.MatchString(baseUrl)
+}
+
+//检查文件夹是否存在  📂
+func checkDirExist(dir string) bool {
+	info, err := os.Stat(dir)
+	if err != nil {
+		if !os.IsNotExist(err) {
+			logs.Error("error with file exist: %v", err)
+		}
+		return false
+	}
+	return info.IsDir()
 }
 
 //检查与配置相关的全局变量，返回检查结果, 一些特定的非法值被设置成默认值而非报错
@@ -474,34 +506,6 @@ func checkBaseConf() bool {
 	return true
 }
 
-//初始化一些统计数值
-func initStaticValue() {
-	totalBytes = 0
-	totalNumber = 0
-	pageNumber = 0
-	tmpBytes = 0
-	totalTime = 0
-	lastTime = time.Now()
-	startTime = time.Now()
-}
-
-//获取用于表示当前工作状态报告信息的字符串 🐢
-func getReportString() (string, error) {
-	var err error
-	if diggerState == 0 { //未开始工作或已经终止
-		err = errors.New("Can't get report string because Digger is not working")
-		return "", err
-	}
-	duration := time.Since(lastTime)
-	lastTime = time.Now()
-	speed := duration.Seconds()
-	tmpBytes = 0
-	percentage := 30
-	reportString := fmt.Sprintf("%d %d %d %d %.2fKB/s %s %d", totalNumber, totalBytes, foundPageList.Len(),
-		pageNumber, speed, time.Since(startTime), percentage)
-	return reportString, nil
-}
-
 //检查是否能正常访问baseURL指定的第一个网页,可检测网络状态以及BaseUrl
 func canVisitBaseUrl() (bool, error) {
 	var err error
@@ -526,71 +530,13 @@ func canVisitBaseUrl() (bool, error) {
 	return true, nil
 }
 
-//决定某个网页链接是否应该进入 🐢
-func isShouldDig(url string) bool {
-	return false
-}
-
-//判断某个标签中是否包含目标图片链接 🐢
-func isHaveTargetImg(tag string) bool {
-	return false
-}
-
-//判断某个标签中是否包含配置指定的转跳链接 🐢
-func isHaveSpecifHref(tag string) bool {
-	return false
-}
-
-//判断baseurl 格式是否正确可用
-func isBaseUrlRight(baseurl string) bool {
-	return true
-}
-
-//检查文件夹是否存在  📂
-func checkDirExist(dir string) bool {
-	info, err := os.Stat(dir)
-	if err != nil {
-		if !os.IsNotExist(err) {
-			logs.Error("error with file exist: %v", err)
-		}
-		return false
-	}
-	return info.IsDir()
-}
-
-//检验一个url，且将相对地址转换为绝对地址,若有中文经过转码将会被还原 📇
-func CheckUrlAndConver(baseUrl string, targetUrl *string) error {
-	if baseUrl == "" {
-		return errors.New("baseUrl is empty")
-	}
-	if targetUrl == nil {
-		return errors.New("targetUrl is nil")
-	}
-	target, err := url.Parse(*targetUrl)
-	if err != nil {
-		return err
-	}
-	//将经过转码的URL字符串还原
-	if converLink, err := url.QueryUnescape(*targetUrl); err != nil {
-		logs.Warn("QueryUnescape url %s fail: err=%d", *targetUrl, err)
-	} else {
-		*targetUrl = converLink
-	}
-	//去除表示位置的内容
-	if idx := strings.Index(*targetUrl, "#"); idx > 0 {
-		*targetUrl = (*targetUrl)[0 : idx+1]
-	}
-	//若本身为绝对路径则无需继续
-	if target.IsAbs() {
-		return nil
-	}
-	base, err := url.Parse(baseUrl)
-	if err != nil {
-		return fmt.Errorf("BaseUrl not right. err=%v", err)
-	}
-	if !base.IsAbs() {
-		return errors.New("BaseUrl is not absolute url")
-	}
-	*targetUrl = fmt.Sprintf("%s://%s%s", base.Scheme, base.Host, target.Path)
-	return nil
+//初始化一些统计数值
+func initStaticValue() {
+	totalBytes = 0
+	totalNumber = 0
+	pageNumber = 0
+	tmpBytes = 0
+	totalTime = 0
+	lastTime = time.Now()
+	startTime = time.Now()
 }

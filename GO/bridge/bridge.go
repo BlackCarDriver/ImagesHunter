@@ -113,11 +113,13 @@ func (b *Bridge) ListenAndServer() error {
 	for {
 		newMsg, more := <-msgChan
 		if more {
-			err = b.handleMessage(newMsg.Key, newMsg.Content)
-			if err != nil {
-				logs.Error("handler return a error: keyword=%s  err=%v", newMsg, err)
-				b.SendMessage("error", fmt.Sprint(err))
-			}
+			go func() { //避免堵塞
+				err = b.handleMessage(newMsg.Key, newMsg.Content)
+				if err != nil {
+					logs.Error("handler return a error: keyword=%s  err=%v", newMsg, err)
+					b.SendMessage("error", fmt.Sprint(err))
+				}
+			}()
 		} else {
 			logs.Info("Go socket client close!")
 			break

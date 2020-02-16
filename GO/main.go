@@ -23,14 +23,21 @@ func main() {
 		os.Exit(1)
 	}
 	test1()
-
 	//注册消息处理函数
 	myBridge.RegisterFunc("test", TestHandler)
 	myBridge.RegisterFunc("start", StartHunter)
 	myBridge.RegisterFunc("pause", PauseHunter)
 	myBridge.RegisterFunc("continue", ContinueHunter)
 	myBridge.RegisterFunc("stop", StopHunter)
-
+	//等待并处理图片保存状况信息
+	go func() {
+		err := waitAndSendResult()
+		if err != nil {
+			logs.Error("Can't setup result senter: err=%v", err)
+			os.Exit(1)
+		}
+		return
+	}()
 	fmt.Println("Start ListenAndServer()...")
 	//开始工作
 	err = myBridge.ListenAndServer()
@@ -54,7 +61,32 @@ func test1() {
 
 //功能性测试
 func test2() {
+	time.Sleep(time.Second * 1)
 	digger.TEST1()
+}
+
+//=====================
+
+//等待digger发来的图片下载报告，直接发送给qt端显示
+//会造成堵塞，需要在新协程中运行
+func waitAndSendResult() error {
+	var err error
+	resultChan := make(chan string, 10)
+	if err = digger.SetupResultChan(&resultChan); err != nil {
+		logs.Error(err)
+	}
+	for {
+		result, more := <-resultChan
+		if more {
+			err = myBridge.SendMessage("table", result)
+			if err != nil {
+				logs.Warn(err)
+			}
+			continue
+		}
+		break
+	}
+	return nil
 }
 
 //===================== 消息处理函数 ==============
@@ -86,10 +118,10 @@ func TestHandler(content string) error {
 func StartHunter(content string) error {
 	var err error
 	logs.Info("TODO: startHunter(), content=" + content)
-	err = digger.StartDigger(content)
+	err = digger.StartDigger(content) //不堵塞
 	if err != nil {
 		logs.Error(err)
-		return nil
+		return err
 	}
 	return nil
 }
@@ -129,125 +161,3 @@ func StopHunter(content string) error {
 	}
 	return nil
 }
-
-/*
-func SignalHandler(signal *bridge.Unit) error {
-	key := signal.Key
-	var err error
-	switch key {
-	case "msg":
-		logs.Info("%v", signal.Content)
-		if err = tube.SendMessage("msg", fmt.Sprintf("<h1>%s</h1>", signal.Content)); err != nil {
-			logs.Error(err)
-			return err
-		}
-
-	case "start": //start huntting images
-		if digger.IsRunning {
-			err := errors.New("Digger is running")
-			logs.Error(err)
-			return err
-		}
-		logs.Info("%v", signal.Content)
-		sizeLimit, numberLimit, threadLimit, minmun, maxmun, loggestWait, interval := 0, 0, 0, 0, 0, 0, 0
-		startPoint, endPoint := 0, 0
-		method, savePath, baseUrl, lineKey, targetKey := "", "", "", "", ""
-		sucNum, err := fmt.Sscanf(signal.Content, "%s %s %d %d %d %d %d %d %d %s %s %s %d %d",
-			&method, &savePath, &sizeLimit, &numberLimit, &threadLimit, &minmun, &maxmun, &loggestWait, &interval,
-			&baseUrl, &lineKey, &targetKey, &startPoint, &endPoint)
-		if err != nil {
-			logs.Error(err)
-			return err
-		}
-		if sucNum != 14 {
-			err = errors.New("Success scanf numbers not right")
-			logs.Error(err)
-			return err
-		}
-		//restore blank character
-		method = strings.ReplaceAll(method, "&npsp", " ")
-		savePath = strings.ReplaceAll(savePath, "&npsp", " ")
-		baseUrl = strings.ReplaceAll(baseUrl, "&npsp", " ")
-		lineKey = strings.ReplaceAll(lineKey, "&npsp", " ")
-		targetKey = strings.ReplaceAll(targetKey, "&npsp", " ")
-
-		//check the savepath if exist
-		if !checkDirExist(savePath) {
-			err = fmt.Errorf("directory %s not exist", savePath)
-			logs.Warn(err)
-			return err
-		}
-		//setting up digger
-		digger.SizeLimit = sizeLimit
-		digger.NumberLimit = numberLimit
-		digger.ThreadLimit = threadLimit
-		digger.Minmun = minmun
-		digger.Maxmun = maxmun
-		digger.LongestWait = loggestWait
-		digger.Interval = interval
-		digger.SavePath = savePath
-		if err = digger.CheckBaseConf(); err != nil {
-			logs.Error(err)
-			return err
-		}
-		//switch to different model according to method
-		msg := make(chan string, 100)
-		switch method {
-		case "bfs":
-			go digger.BFS_hunt(baseUrl, lineKey, targetKey, msg)
-		case "dfs":
-			go digger.DFS_hunt(baseUrl, lineKey, targetKey, msg)
-		case "forloop":
-			go digger.ForLoop_hunt(baseUrl, startPoint, startPoint, msg)
-		case "urllist":
-			go digger.UrlList_hunt(baseUrl, msg)
-		default:
-			err = fmt.Errorf("Unexpect method name: %s", method)
-			logs.Error(err)
-			defer close(msg)
-			return err
-		}
-		//listen and send table data to qt mainwindows
-		go func() {
-			for {
-				returnData, more := <-msg
-				if !more {
-					tube.SendMessage("info", "Images hunter is stop !")
-					break
-				}
-				if err = tube.SendMessage("table", returnData); err != nil {
-					logs.Error(err)
-				}
-			}
-		}()
-		//listen and send static data to qt mainwindows
-		go func() {
-			for {
-				<-time.Tick(time.Second)
-				staticData := digger.GetStatic()
-				if staticData == "pause" {
-					continue
-				}
-				if staticData == "end" {
-					return
-				}
-				tube.SendMessage("static", staticData)
-			}
-		}()
-
-	case "pause":
-		digger.Pause()
-
-	case "stop":
-		digger.Stop()
-
-	default:
-		err = fmt.Errorf("Unexpect key name: %s", key)
-		logs.Error(err)
-		return err
-	}
-	return nil
-}
-*/
-
-//========== tools function ==============

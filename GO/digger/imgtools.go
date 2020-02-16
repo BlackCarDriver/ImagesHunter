@@ -9,6 +9,7 @@ import (
 	"io/ioutil"
 	"net/http"
 	"os"
+	"regexp"
 	"strings"
 	"sync"
 	"time"
@@ -83,6 +84,117 @@ func WaitImgAndDownload(numbers int) error {
 	return nil
 }
 
+//获得htmlCode中全部符合配置指定的图片链接，写到link[]中
+//baseUrl为获得页面的URL，用于将得到的相对链接转换成绝对链接
+func getAllSpeciicImgLink(baseUrl string, htmlCode *string, link *[]string) error {
+	if htmlCode == nil || *htmlCode == "" {
+		return errors.New("htmlCode is empty")
+	}
+	if *link == nil {
+		*link = make([]string, 0)
+	} else if len(*link) != 0 {
+		return errors.New("link[] not empty")
+	}
+	//先获取包含链接的<img>标签
+	allATag := regexpFindAllImgTag.FindAllString(*htmlCode, -1)
+	if len(allATag) == 0 {
+		logs.Warn("find zero <img> tag from htmlCode")
+		return nil
+	}
+	//从<img>标签中筛选出链接，若配置有指定关键字则只从包含关键字的标签中取
+	regexpFindLink := regexp.MustCompile(`src="[^"]*`)
+	for i := 0; i < len(allATag); i++ {
+		if targetKey != "" && !strings.Contains(allATag[i], targetKey) {
+			continue
+		}
+		tmpLink := regexpFindLink.FindString(allATag[i])
+		if len(tmpLink) < 7 {
+			logs.Warn("find a danger url: %s", tmpLink)
+			continue
+		}
+		if len(tmpLink) > 400 {
+			logs.Warn("find a danger url, length=%d", len(tmpLink))
+			continue
+		}
+		tmpLink = tmpLink[5:] //去除src="前缀
+		//将相对链接转换成绝对链接
+		if err := CheckUrlAndConver(baseUrl, &tmpLink); err != nil {
+			logs.Warn("check url %s not pass, err=%v", tmpLink, err)
+			continue
+		}
+		*link = append(*link, tmpLink)
+	}
+	return nil
+}
+
+//下载图片到配置指定的目录,同时通过管道发出下载报告
+func DownLoadImg(imgUrl string) error {
+	var err error
+	var resp *http.Response
+	var body []byte
+	var out *os.File
+	imgSize := 0
+	imgName, imgPath := "", ""
+	tag := "" //下载结果
+	if !isImgUrl(imgUrl) {
+		err = fmt.Errorf("not a images url: url=%s", imgUrl)
+		tag = "url worng"
+		goto end
+	}
+	resp, err = mainClient.Get(imgUrl)
+	if err != nil {
+		tag = "http fail"
+		goto end
+	}
+	if resp.StatusCode != http.StatusOK {
+		err = fmt.Errorf("response status not ok: url=%s  statusCode=%d", imgUrl, resp.StatusCode)
+		tag = fmt.Sprintf("%d", resp.StatusCode)
+		goto end
+	}
+	body, err = ioutil.ReadAll(resp.Body)
+	if err != nil {
+		err = fmt.Errorf("ioutil ReadAll fail: %v", err)
+		tag = "read fail"
+		goto end
+	}
+	//文件大小检验
+	imgSize = len(body)
+	if imgSize < minSizeLimit*1024 || imgSize > maxSizeLimit*1024 {
+		err = fmt.Errorf("imgSize over limited: size=%d", imgSize)
+		tag = "size excess"
+		goto end
+	}
+	//保存文件到本地
+	imgName, _ = getName(imgUrl)
+	imgPath = fmt.Sprint(savePath, string(os.PathSeparator), imgName)
+	out, err = os.Create(imgPath)
+	defer out.Close()
+	if err != nil {
+		err = fmt.Errorf("Create file fail: err=%v", err)
+		tag = "create fail"
+		goto end
+	}
+	_, err = io.Copy(out, bytes.NewReader(body))
+	if err != nil {
+		err = fmt.Errorf("copy images fail, err=%v", err)
+		tag = "copy fail"
+		goto end
+	}
+end:
+	if err != nil {
+		logs.Warn("Download images fail, url=%s  err=%v", imgUrl, err)
+		sendResult(imgUrl, tag, "---", 0)
+	} else {
+		sendResult(imgUrl, "OK", imgName, imgSize)
+		//更新统计数值
+		updataSizeMutex.Lock()
+		totalBytes += imgSize
+		tmpBytes += imgSize
+		updataSizeMutex.Unlock()
+	}
+	return nil
+}
+
 //检查url是否符合图片链接的格式
 func isImgUrl(imgUrl string) bool {
 	imgUrl = strings.ToLower(imgUrl)
@@ -107,45 +219,4 @@ func getName(imgUrl string) (string, error) {
 	getNameMutex.Unlock()
 	newName := fmt.Sprintf("%d_%s%s", index, prefix, suffix)
 	return newName, nil
-}
-
-//下载图片到配置指定的目录
-func DownLoadImg(imgUrl string) error {
-	logs.Debug("DownLoadImg(): imgUrl=%s", imgUrl)
-	if !isImgUrl(imgUrl) {
-		return fmt.Errorf("not a images url: url=%s", imgUrl)
-	}
-	resp, err := mainClient.Get(imgUrl)
-	if err != nil {
-		return err
-	}
-	if resp.StatusCode != http.StatusOK {
-		return fmt.Errorf("response status not ok: url=%s  statusCode=%d", imgUrl, resp.StatusCode)
-	}
-	body, err := ioutil.ReadAll(resp.Body)
-	if err != nil {
-		return fmt.Errorf("ioutil ReadAll fail: %v", err)
-	}
-	//文件大小检验
-	imgSize := len(body)
-	if imgSize < minSizeLimit*1024 || imgSize > maxSizeLimit*1024 {
-		return fmt.Errorf("imgSize over limited: size=%d", imgSize)
-	}
-	//更新统计数值
-	updataSizeMutex.Lock()
-	totalBytes += imgSize
-	updataSizeMutex.Unlock()
-	//保存文件到本地
-	imgName, _ := getName(imgUrl)
-	imgPath := fmt.Sprint(savePath, string(os.PathSeparator), imgName)
-	out, err := os.Create(imgPath)
-	defer out.Close()
-	if err != nil {
-		return fmt.Errorf("Create file fail: err=%v", err)
-	}
-	_, err = io.Copy(out, bytes.NewReader(body))
-	if err != nil {
-		return fmt.Errorf("copy images fail, err=%v", err)
-	}
-	return nil
 }
