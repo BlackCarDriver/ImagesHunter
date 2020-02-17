@@ -11,7 +11,7 @@ using namespace std;
 
 class Bridge : public QWidget{
     Q_OBJECT
-    void *target_class;             //目标类，放MainWindow对象指针
+    void *target_class;      //目标类，为静态函数提供一个this指针
     typedef int(*funcTypeP)(void*, QString);	//目标函数指针类型
     map<QString, funcTypeP>funcMap;		//关键字到目标函数的映射
 

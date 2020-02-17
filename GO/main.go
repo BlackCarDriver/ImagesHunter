@@ -23,7 +23,7 @@ func main() {
 		os.Exit(1)
 	}
 	// go test2()
-	test1()
+	// test1()
 	//注册消息处理函数
 	myBridge.RegisterFunc("test", TestHandler)
 	myBridge.RegisterFunc("start", StartHunter)
@@ -105,7 +105,6 @@ func StartHunter(content string) error {
 //暂停正在进行的图片捕获功能
 func PauseHunter(content string) error {
 	var err error
-	fmt.Println("TODO: PauseHunter(), content=" + content)
 	err = digger.PauseDigger()
 	if err != nil {
 		logs.Error(err)

@@ -19,15 +19,22 @@ import (
 
 //等待图片队列的图片链接到达，自动下载图片到本地, number:同时下载图片的协程数量
 //本函数会导致堵塞，需要运行在单独的协程中直接程序结束
+//外部可以通过 downloadState=2 暂停下载任务，downloadState=0 结束任务
 func WaitImgAndDownload(numbers int) error {
+	//若正处于暂停状态，则让暂停状态变回正常运行状态
+	if downloadState == 2 {
+		downloadState = 1
+		return nil
+	}
+	//若正在运行中，则很可能错误调用
 	if downloadState != 0 {
 		return errors.New("can't setup downloader becase downloadState != 0")
 	}
 	if numbers < 1 || numbers > 20 {
 		return fmt.Errorf("numbers illegal: numbers=%d", numbers)
 	}
-	downloadState = 1
 	logs.Debug("Images download is running...")
+	downloadState = 1
 	defer func() {
 		logs.Debug("Images download is close...")
 		downloadState = 0
@@ -39,7 +46,10 @@ func WaitImgAndDownload(numbers int) error {
 	//以一秒为间隔，监听图片队列的变化
 	ticker := time.NewTicker(1 * time.Second)
 	for _ = range ticker.C {
-		//外部可以通过downloadState来结束图片下载的工作，diggerState对此无影响
+		//外部可以通过downloadState来暂停和结束图片下载的工作
+		if downloadState == 2 {
+			continue
+		}
 		if downloadState == 0 {
 			logs.Info("downloader shut down because state=0")
 			break
@@ -81,6 +91,13 @@ func WaitImgAndDownload(numbers int) error {
 				workersNum++
 				workersMtx.Unlock()
 			}()
+		}
+		//若到达结束条件，则结束工作
+		if isShouldSopt() {
+			logs.Info("The exit condition is triggered")
+			sendMessage("function", "digger autoly stop")
+			StopDigger()
+			break
 		}
 	}
 	return nil
@@ -131,11 +148,6 @@ func getAllSpeciicImgLink(baseUrl string, htmlCode *string, link *[]string) erro
 
 //下载图片到配置指定的目录,同时通过管道发出下载报告
 func DownLoadImg(imgUrl string) error {
-	if imgUrl != "" {
-		totalBytes += 1000
-		totalNumber++
-		return nil //暂时不下载图片
-	}
 	var err error
 	var resp *http.Response
 	var body []byte
@@ -155,7 +167,7 @@ func DownLoadImg(imgUrl string) error {
 	}
 	if resp.StatusCode != http.StatusOK {
 		err = fmt.Errorf("response status not ok: url=%s  statusCode=%d", imgUrl, resp.StatusCode)
-		tag = fmt.Sprintf("%d", resp.StatusCode)
+		tag = fmt.Sprintf("Status:%d", resp.StatusCode)
 		goto end
 	}
 	body, err = ioutil.ReadAll(resp.Body)

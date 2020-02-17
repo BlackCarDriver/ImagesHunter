@@ -43,6 +43,7 @@ var (
 	pageNumber  int       //已经访问的页面数量 (维护位置：getHtmlCodeOfUrl())
 	tmpBytes    int       //单位时间内下载图片的总大小 (维护位置：getReportString() & DownLoadImg() )
 	totalTime   int       //总运行时间，秒
+	percentage  int       //任务进度，(百分之多少)
 	lastTime    time.Time //上次统计下载速度的时间
 	startTime   time.Time //上次点击开始或继续的时间
 )
@@ -82,7 +83,7 @@ func init() {
 	diggerState = 0 //未开始
 	downloadState = 0
 	reporterState = 0
-	pageLimit = 4
+	pageLimit = 4000
 	msgChan = nil
 	randMachine = rand.New(rand.NewSource(time.Now().UnixNano()))
 	mainClient = new(http.Client)
@@ -139,8 +140,41 @@ func SetupMsgChan(newChan *chan string) error {
 	return nil
 }
 
-//暂停工作,保留状态 🐢
+//暂停工作,保留状态
 func PauseDigger() error {
+	diggerState = 2   //停止继续发掘网页
+	reporterState = 0 //停止发送报告
+	downloadState = 2 //暂停继续下载图片
+	return nil
+}
+
+//终止工作清楚状态 🐢
+func StopDigger() error {
+	diggerState = 0
+	reporterState = 0    //结束发送报告任务
+	downloadState = 0    //结束图片下载任务
+	var totalSize string //用于表示下载文件总大小的字符串
+	if totalBytes < 1<<10 {
+		totalSize = fmt.Sprintf("%dB", totalBytes)
+	} else if totalBytes < 1<<20 {
+		totalSize = fmt.Sprintf("%dKB", totalBytes>>10)
+	} else {
+		totalSize = fmt.Sprintf("%dMB", totalBytes>>20)
+	}
+	logs.Info("StopDigger() have been called, data have been clear")
+	logs.Info("Achievement: PageListLen=%d \t imagesListLen=%d \t PageNumber=%d \t imagesNumber=%d \t totalSize=%s",
+		foundPageList.Len(),
+		foundImgList.Len(),
+		pageNumber,
+		totalNumber,
+		totalSize,
+	)
+	//清除数据
+	foundPageList.Init()
+	foundImgList.Init()
+	imgUrlMap = make(map[string]bool)
+	pageUrlMap = make(map[string]bool)
+	initStaticValue()
 	return nil
 }
 
@@ -162,8 +196,11 @@ func ContinueDigger() error {
 		} else {
 			err = errors.New("Unexpect method: mthod=" + method)
 		}
-		//定期向qt端发送统计数据信息
-		go setupReporter()
+		//启动或恢复图片下载以及发送统计数据的功能
+		if err == nil {
+			go setupReporter()
+			go WaitImgAndDownload(threadLimit)
+		}
 	default:
 		err = fmt.Errorf("Unknow diggerState: diggerState=%d", diggerState)
 	}
@@ -171,11 +208,6 @@ func ContinueDigger() error {
 		logs.Error(err)
 		return err
 	}
-	return nil
-}
-
-//终止工作清楚状态 🐢
-func StopDigger() error {
 	return nil
 }
 
@@ -207,11 +239,11 @@ func runBFS() error {
 	diggerState = 1
 	go func() {
 		for diggerState == 1 {
+			//到达停止条件，注意不仅要停止digger，而且要停止reporter 和 downloader
 			if isShouldSopt() {
 				logs.Info("The exit condition is triggered")
-				sendMessage("function", "auto_stop")
-				diggerState = 0
-				time.Sleep(10 * time.Second)
+				sendMessage("function", "auto_stop") //🐉
+				StopDigger()
 				break
 			}
 			pageHtml, url := "", "" //pageHtml暂存页面的html代码
@@ -222,7 +254,6 @@ func runBFS() error {
 				logs.Error("lastPageEle is empty string")
 				goto end
 			}
-			pageNumber++
 			//发送http请求获取页面代码
 			if err = getHtmlCodeOfUrl(url, &pageHtml); err != nil {
 				logs.Warn("getHtmlCodeOfUrl fail: url=%s  err=%v", url, err)
@@ -270,6 +301,7 @@ func runBFS() error {
 			} else {
 				lastPageEle = lastPageEle.Next()
 			}
+			time.Sleep(time.Second * time.Duration(intervalTime))
 		}
 		diggerState = 0
 		logs.Info("gorounting in runBFS() go to the end, imgList's length=%d   pageList's length=%d", foundImgList.Len(), foundPageList.Len())
@@ -337,13 +369,6 @@ func setUpConfig(config string) error {
 	if foundImgList.Len() > 0 {
 		foundImgList.Init()
 	}
-	go func() {
-		err = WaitImgAndDownload(threadLimit)
-		if err != nil {
-			logs.Emergency(err)
-			os.Exit(1)
-		}
-	}()
 	if method == "BFS" || method == "DFS" {
 		lastPageEle = foundPageList.PushBack(baseUrl)
 	}
@@ -386,77 +411,15 @@ func sendMessage(key, content string) error {
 	if key == "" || content == "" {
 		return errors.New("key or content is null string")
 	}
-	if strings.Contains(key+content, "") {
-		return errors.New("key or content contain space")
+	if strings.Contains(key, "@") {
+		return errors.New("key or content contain '@'")
 	}
 	resultStr := fmt.Sprintf("%s@%s", key, content)
 	sendMsgMutex.Lock()
-	logs.Debug("sendMessage:   %s", sendResult)
+	logs.Debug("sendMessage:   %s", resultStr)
 	(*msgChan) <- resultStr
 	sendMsgMutex.Unlock()
 	return nil
-}
-
-//堵塞，定期向qt端发送统计数据报告，
-func setupReporter() {
-	if reporterState > 0 {
-		logs.Warn("another reporter sill running")
-		return
-	}
-	logs.Info("reporter is running...")
-	reporterState++
-	tigger := time.Tick(2 * time.Second)
-	for _ = range tigger {
-		if reporterState != 1 {
-			break
-		}
-		reportStr, err := getReportString()
-		if err != nil {
-			logs.Error("getReportString fail: err=%v", err)
-			break
-		}
-		logs.Debug("static report: ", reportStr)
-		sendMessage("static", reportStr)
-	}
-	logs.Info("reporter exit...")
-	reporterState--
-}
-
-//================ 非核心功能代码 ===================
-
-//获取用于表示当前工作状态报告信息的字符串
-//调用后部分统计数值将会被更新
-func getReportString() (string, error) {
-	if reporterState == 0 { //未开始工作或已经终止
-		return "", errors.New("Can't get report string because reposter is not working")
-	}
-	if diggerState == 2 {
-		return "", errors.New("Should'n send report because digger is pause")
-	}
-	duration := time.Since(lastTime)
-	lastTime = time.Now()
-	durationSecond := 1
-	if int(duration.Seconds()) > 1 { //避免出现0
-		durationSecond = int(duration.Seconds())
-	}
-	totalTime += durationSecond
-	speed := (tmpBytes / 1024) / durationSecond
-	tmpBytes = 0
-	percentage := 30 //进度，百分之多少，暂时先用假数据
-	reportString := fmt.Sprintf("%d %d %d %d %dKB/s %s %d", totalNumber, totalBytes, foundPageList.Len(),
-		pageNumber, speed, time.Since(startTime), percentage)
-	return reportString, nil
-}
-
-//初始化或重置一些统计数值
-func initStaticValue() {
-	totalBytes = 0
-	totalNumber = 0
-	pageNumber = 0
-	tmpBytes = 0
-	totalTime = 0
-	lastTime = time.Now()
-	startTime = time.Now()
 }
 
 //============== 判断与检查代码 =============
@@ -503,22 +466,19 @@ func isShouldSopt() bool {
 	if diggerState == 0 {
 		return true
 	}
-	if totalBytes >= totalSizeLimit<<20 {
+	if totalBytes >= totalSizeLimit<<20 { //下载总大小到达上限
 		logs.Info("total size of download files reach the limit")
 		return true
 	}
-	if pageNumber > pageLimit {
+	if pageNumber >= pageLimit { //访问页面数量到达上限
 		logs.Info("total page reach the limit")
 		return true
 	}
-	if totalNumber > numberLimit {
+	if totalNumber >= numberLimit { //下载数量到达上限
 		logs.Info("total numbers of download files reach the limit")
 		return true
 	}
-	if totalTime > waitTimeLimit {
-		logs.Info("total time of download reach the limit")
-		return true
-	}
+	//todo 等待时间到达上限
 	return false
 }
 

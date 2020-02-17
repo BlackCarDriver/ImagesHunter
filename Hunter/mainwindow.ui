@@ -152,7 +152,7 @@
       <number>90000</number>
      </property>
      <property name="value">
-      <number>1000</number>
+      <number>20</number>
      </property>
     </widget>
     <widget class="QSpinBox" name="spin_base_threadLimit">
@@ -171,7 +171,7 @@
       <number>10</number>
      </property>
      <property name="value">
-      <number>5</number>
+      <number>3</number>
      </property>
     </widget>
     <widget class="QLabel" name="lable_threadNum">
@@ -239,7 +239,7 @@
       <number>10240</number>
      </property>
      <property name="value">
-      <number>5</number>
+      <number>0</number>
      </property>
     </widget>
     <widget class="QLabel" name="label_12">
@@ -268,7 +268,7 @@
       <number>10240</number>
      </property>
      <property name="value">
-      <number>10240</number>
+      <number>100</number>
      </property>
     </widget>
     <widget class="QLabel" name="label_maximumSize">
@@ -313,7 +313,7 @@
       <number>30</number>
      </property>
      <property name="value">
-      <number>10</number>
+      <number>5</number>
      </property>
     </widget>
     <widget class="QLabel" name="label_longestWait">
@@ -326,7 +326,7 @@
       </rect>
      </property>
      <property name="text">
-      <string>最长等待：</string>
+      <string>下载等待：</string>
      </property>
     </widget>
     <widget class="QLabel" name="label_interval">
@@ -358,7 +358,7 @@
       <number>30</number>
      </property>
      <property name="value">
-      <number>0</number>
+      <number>1</number>
      </property>
     </widget>
     <widget class="QLabel" name="label_17">
@@ -413,7 +413,7 @@
         </rect>
        </property>
        <property name="text">
-        <string>http:\\indoor.com</string>
+        <string>https://www.jb51.net/article/117220.htm</string>
        </property>
       </widget>
       <widget class="QLabel" name="label_bfs_pathTP">
@@ -439,7 +439,7 @@
         </rect>
        </property>
        <property name="text">
-        <string>redirects keyword</string>
+        <string/>
        </property>
       </widget>
       <widget class="QLabel" name="label_bfs_lineKey">
@@ -478,7 +478,7 @@
         </rect>
        </property>
        <property name="text">
-        <string>target keyword</string>
+        <string/>
        </property>
       </widget>
      </widget>
@@ -706,7 +706,7 @@ p, li { white-space: pre-wrap; }
      <rect>
       <x>420</x>
       <y>20</y>
-      <width>431</width>
+      <width>411</width>
       <height>571</height>
      </rect>
     </property>
@@ -716,10 +716,10 @@ p, li { white-space: pre-wrap; }
     <widget class="QWidget" name="layoutWidget">
      <property name="geometry">
       <rect>
-       <x>180</x>
+       <x>157</x>
        <y>30</y>
-       <width>88</width>
-       <height>19</height>
+       <width>121</width>
+       <height>20</height>
       </rect>
      </property>
      <layout class="QHBoxLayout" name="horizontalLayout_2">
@@ -752,7 +752,7 @@ p, li { white-space: pre-wrap; }
       <rect>
        <x>20</x>
        <y>70</y>
-       <width>118</width>
+       <width>121</width>
        <height>19</height>
       </rect>
      </property>
@@ -784,10 +784,10 @@ p, li { white-space: pre-wrap; }
     <widget class="QWidget" name="layoutWidget_3">
      <property name="geometry">
       <rect>
-       <x>180</x>
+       <x>157</x>
        <y>70</y>
-       <width>88</width>
-       <height>19</height>
+       <width>121</width>
+       <height>20</height>
       </rect>
      </property>
      <layout class="QHBoxLayout" name="horizontalLayout_4">
@@ -818,8 +818,8 @@ p, li { white-space: pre-wrap; }
     <widget class="QTableWidget" name="static_list">
      <property name="geometry">
       <rect>
-       <x>30</x>
-       <y>140</y>
+       <x>10</x>
+       <y>130</y>
        <width>391</width>
        <height>431</height>
       </rect>
@@ -850,7 +850,7 @@ p, li { white-space: pre-wrap; }
       <rect>
        <x>21</x>
        <y>30</y>
-       <width>88</width>
+       <width>121</width>
        <height>19</height>
       </rect>
      </property>
@@ -882,8 +882,8 @@ p, li { white-space: pre-wrap; }
     <widget class="QProgressBar" name="static_progressbar">
      <property name="geometry">
       <rect>
-       <x>20</x>
-       <y>103</y>
+       <x>10</x>
+       <y>100</y>
        <width>391</width>
        <height>16</height>
       </rect>
@@ -895,10 +895,10 @@ p, li { white-space: pre-wrap; }
     <widget class="QWidget" name="layoutWidget">
      <property name="geometry">
       <rect>
-       <x>310</x>
+       <x>295</x>
        <y>70</y>
-       <width>76</width>
-       <height>19</height>
+       <width>101</width>
+       <height>20</height>
       </rect>
      </property>
      <layout class="QHBoxLayout" name="horizontalLayout_5">
@@ -929,10 +929,10 @@ p, li { white-space: pre-wrap; }
     <widget class="QWidget" name="layoutWidget">
      <property name="geometry">
       <rect>
-       <x>310</x>
+       <x>295</x>
        <y>30</y>
-       <width>76</width>
-       <height>19</height>
+       <width>101</width>
+       <height>20</height>
       </rect>
      </property>
      <layout class="QHBoxLayout" name="horizontalLayout_6">

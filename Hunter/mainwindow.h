@@ -21,6 +21,7 @@ public: //消息处理函数
     static int infoHandle(void *thisP, QString content);
     static int tableHandle(void *thisP, QString content);
     static int staticHandle(void *thisP, QString content);
+    static int controlWindow(void *thisP, QString content);
 
 private slots:
     void on_btn_start_clicked();

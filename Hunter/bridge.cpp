@@ -53,7 +53,6 @@ void Bridge::disconnect(){
 
 //处理量连接被动断开的情况
 void Bridge::SocketDisconect(){
-    QMessageBox::warning(this,"Inof","The connect is Close!");
     this->Isconnected = false;
     tcpSocket->close();
     tcpServer->close();
@@ -64,7 +63,7 @@ void Bridge::SocketDisconect(){
 bool Bridge::handleMsg(QString msg, QString &key, QString &content){
     int idx = msg.indexOf("@");
     if (idx < 0 ){
-        qDebug()<<"Error: no @ in receive data!";
+        qDebug()<<"Error: no @ in msg： msg="+msg;
         return false;
     }
     key = msg.left(idx);
