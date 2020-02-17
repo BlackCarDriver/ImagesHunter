@@ -6,6 +6,7 @@ import (
 	"net/http"
 	"regexp"
 	"strings"
+	"time"
 
 	"github.com/astaxie/beego/logs"
 )
@@ -36,6 +37,7 @@ func getHtmlCodeOfUrl(url string, htmlCode *string) error {
 		return errors.New("read nothing from response body")
 	}
 	pageNumber++
+	time.Sleep(time.Duration(intervalTime) * time.Second)
 	*htmlCode = string(bytes)
 	return nil
 }

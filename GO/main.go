@@ -22,6 +22,7 @@ func main() {
 		logs.Error(err)
 		os.Exit(1)
 	}
+	// go test2()
 	test1()
 	//注册消息处理函数
 	myBridge.RegisterFunc("test", TestHandler)
@@ -29,15 +30,14 @@ func main() {
 	myBridge.RegisterFunc("pause", PauseHunter)
 	myBridge.RegisterFunc("continue", ContinueHunter)
 	myBridge.RegisterFunc("stop", StopHunter)
-	//等待并处理图片保存状况信息
-	go func() {
-		err := waitAndSendResult()
-		if err != nil {
-			logs.Error("Can't setup result senter: err=%v", err)
-			os.Exit(1)
-		}
-		return
-	}()
+	//向digger转达可以直接发送消息到qt端的管道
+	if msgChan, err := myBridge.GetMsgChan(); err != nil {
+		logs.Emergency("Get msgChan from bridge fail: err=%v", err)
+		os.Exit(1)
+	} else if err = digger.SetupMsgChan(msgChan); err != nil {
+		logs.Emergency("Setup digger's msgChan fail: err=%v", err)
+		os.Exit(1)
+	}
 	fmt.Println("Start ListenAndServer()...")
 	//开始工作
 	err = myBridge.ListenAndServer()
@@ -48,45 +48,21 @@ func main() {
 
 //模拟 QT 端点击开始按钮
 func test1() {
-	content := "BFS D:/TEMP 100 2 5 5 10240 10 0 http://www.ruanyifeng.com/blog/ &empty &empty 0 0"
+	content := "BFS D:/TEMP 100 2 5 0 10240 10 0 https://www.cnblogs.com/yetuweiba/p/4365488.html &empty &empty 0 0"
 	err := StartHunter(content)
 	if err != nil {
 		logs.Error(err)
 	} else {
 		logs.Info("Test complete!")
 	}
-	time.Sleep(10 * time.Second)
+	time.Sleep(20 * time.Second)
 	os.Exit(0)
 }
 
 //功能性测试
 func test2() {
-	time.Sleep(time.Second * 1)
+	time.Sleep(time.Second * 2)
 	digger.TEST1()
-}
-
-//=====================
-
-//等待digger发来的图片下载报告，直接发送给qt端显示
-//会造成堵塞，需要在新协程中运行
-func waitAndSendResult() error {
-	var err error
-	resultChan := make(chan string, 10)
-	if err = digger.SetupResultChan(&resultChan); err != nil {
-		logs.Error(err)
-	}
-	for {
-		result, more := <-resultChan
-		if more {
-			err = myBridge.SendMessage("table", result)
-			if err != nil {
-				logs.Warn(err)
-			}
-			continue
-		}
-		break
-	}
-	return nil
 }
 
 //===================== 消息处理函数 ==============

@@ -16,6 +16,7 @@ import (
 )
 
 var isCreate = false               //实例是否已被创建
+var sendMsgMutex *sync.Mutex       //允许多线程下安全调用sendMsg()
 type MsgHandler func(string) error //消息处理函数类型
 
 /*
@@ -31,17 +32,18 @@ type Unit struct {
 
 type Bridge struct {
 	conn      net.Conn
-	isConnect bool   //socket 链接是否已建立
-	mtu       int    //最大传输单元
-	port      int    //监听端口
-	buf       string //消息缓存
-	mu        sync.Mutex
+	isConnect bool         //socket 链接是否已建立
+	mtu       int          //最大传输单元
+	port      int          //监听端口
+	buf       string       //消息缓存
+	msgChan   *chan string //向外界提供的直接向qt端发送消息的管道
 	handleMap map[string]MsgHandler
 }
 
 func init() {
 	logs.EnableFuncCallDepth(true)
 	logs.SetLogFuncCallDepth(3)
+	sendMsgMutex = new(sync.Mutex)
 }
 
 /*
@@ -63,6 +65,8 @@ func GetBridge(mtu, port int) (*Bridge, error) {
 	newBridge.conn = nil
 	newBridge.isConnect = false
 	newBridge.handleMap = make(map[string]MsgHandler)
+	newBridge.msgChan = new(chan string)
+	*newBridge.msgChan = make(chan string, 50)
 	isCreate = true
 	return newBridge, nil
 }
@@ -109,6 +113,8 @@ func (b *Bridge) ListenAndServer() error {
 	//等待接收消息,通过msgChan得到处理后的消息
 	msgChan := make(chan *Unit, 100)
 	go b.waitAndPreHandle(msgChan)
+	//等待调用者发来的消息并向qt端转发
+	go b.waitAndSendMessage()
 	//处理接收到的消息
 	for {
 		newMsg, more := <-msgChan
@@ -164,11 +170,22 @@ func (b *Bridge) SendMessage(key string, data interface{}) error {
 	//通过简单的传输协议来实现透明传输
 	strings.ReplaceAll(tmpStr, "#", "^#")
 	sendStr := fmt.Sprintf("%s@%s\\#", key, tmpStr)
-	b.mu.Lock()
+	sendMsgMutex.Lock()
 	fmt.Fprintf(b.conn, sendStr) //发出数据
 	time.Sleep(15 * time.Millisecond)
-	b.mu.Unlock()
+	sendMsgMutex.Unlock()
 	return nil
+}
+
+//向外界提供msgChan，提供直接向qt端发送数据的方式
+func (b *Bridge) GetMsgChan() (*chan string, error) {
+	if !isCreate {
+		return nil, errors.New("Bridge object not been created")
+	}
+	if b.msgChan == nil {
+		return nil, errors.New("msgChan is nil")
+	}
+	return b.msgChan, nil
 }
 
 //============== 私有函数 ===================
@@ -231,6 +248,35 @@ func (b *Bridge) waitAndPreHandle(msgChan chan<- *Unit) {
 	b.conn.Close()
 	close(msgChan)
 	os.Exit(0)
+}
+
+/*
+不断等待 msgChan 里面发送来的字符串，将受到的消息直接向Qt端发生
+不会造成堵塞，需要在单独一个协程里面运作
+*/
+func (b *Bridge) waitAndSendMessage() {
+	if !isCreate {
+		logs.Emergency("Bridge object not been created")
+	}
+	if b.msgChan == nil {
+		logs.Emergency("msgChan not ready")
+	}
+	logs.Info("waitAndSendMessage() is running in background...")
+	for {
+		message, more := <-(*b.msgChan)
+		if more {
+			spiltRes := strings.Split(message, "@")
+			if len(spiltRes) != 2 {
+				logs.Warn("skip a worng message: message=%s", message)
+				continue
+			}
+			b.SendMessage(spiltRes[0], spiltRes[1])
+			continue
+		}
+		break
+	}
+	logs.Warn("waitAndSendMessage() exit because msgChan have been close")
+	return
 }
 
 /*

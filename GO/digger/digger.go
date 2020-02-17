@@ -23,6 +23,7 @@ var (
 	minSizeLimit   int    //文件大小最小值，KB
 	maxSizeLimit   int    //文件大小最大值，KB
 	numberLimit    int    //图片下载数量限制
+	pageLimit      int    //爬取页面数量限制(测试用)
 	threadLimit    int    //下载引擎数量限制
 	waitTimeLimit  int    //最长等待时间，单位秒
 	intervalTime   int    //等待间隔，秒
@@ -40,7 +41,7 @@ var (
 	totalBytes  int       //已下载图片的总大小 (维护位置：DownLoadImg())
 	totalNumber int       //已下载图片的中数量 (维护位置：getName())
 	pageNumber  int       //已经访问的页面数量 (维护位置：getHtmlCodeOfUrl())
-	tmpBytes    int       //单位时间内下载图片的总大小 (维护位置： )
+	tmpBytes    int       //单位时间内下载图片的总大小 (维护位置：getReportString() & DownLoadImg() )
 	totalTime   int       //总运行时间，秒
 	lastTime    time.Time //上次统计下载速度的时间
 	startTime   time.Time //上次点击开始或继续的时间
@@ -60,11 +61,13 @@ var (
 var (
 	diggerState     int32        //工作状态：0未开始或已终止，1运行中，2暂停中
 	downloadState   int32        //图片下载功能状态：0未启动，1已启动
+	reporterState   int          //已启动的统计数据发送器的数量
 	randMachine     *rand.Rand   //用户创建随机数的对象
 	mainClient      *http.Client //用于发送http请求的客户端对象
 	getNameMutex    *sync.Mutex  //同步锁，生成随机数时用
+	sendMsgMutex    *sync.Mutex  //发送消息同步锁
 	updataSizeMutex *sync.Mutex  //同步锁，更新已下载图片大小时用
-	resultChan      *chan string //用于发送图片下载的情况
+	msgChan         *chan string //用于将消息直接通过bridge来实现发送到管道
 )
 
 //一些全局正则表达式对象
@@ -78,7 +81,9 @@ func init() {
 	initStaticValue()
 	diggerState = 0 //未开始
 	downloadState = 0
-	resultChan = nil
+	reporterState = 0
+	pageLimit = 4
+	msgChan = nil
 	randMachine = rand.New(rand.NewSource(time.Now().UnixNano()))
 	mainClient = new(http.Client)
 	foundPageList = list.New()
@@ -94,6 +99,7 @@ func init() {
 	//初始化同步锁
 	updataSizeMutex = new(sync.Mutex)
 	getNameMutex = new(sync.Mutex)
+	sendMsgMutex = new(sync.Mutex)
 	//未经测试修改以下正则可能引发panic
 	regexpFindAllATag = regexp.MustCompile(`<a [^>]*href=[^>]*>`)
 	regexpFindAllImgTag = regexp.MustCompile(`<img [^>]*src=[^>]*>`)
@@ -121,15 +127,15 @@ func StartDigger(config string) error {
 }
 
 //设置用于返回图片下载情况的管道
-func SetupResultChan(newChan *chan string) error {
+func SetupMsgChan(newChan *chan string) error {
 	if newChan == nil {
 		return errors.New("newChan is nil")
 	}
-	if resultChan != nil {
-		return errors.New("setup resultChan fail because resultChan not nil")
+	if msgChan != nil {
+		return errors.New("setup msgChan fail because msgChan not nil")
 	}
-	resultChan = newChan
-	logs.Info("resultChan have been setup")
+	msgChan = newChan
+	logs.Info("msgChan have been setup")
 	return nil
 }
 
@@ -156,6 +162,8 @@ func ContinueDigger() error {
 		} else {
 			err = errors.New("Unexpect method: mthod=" + method)
 		}
+		//定期向qt端发送统计数据信息
+		go setupReporter()
 	default:
 		err = fmt.Errorf("Unknow diggerState: diggerState=%d", diggerState)
 	}
@@ -199,8 +207,11 @@ func runBFS() error {
 	diggerState = 1
 	go func() {
 		for diggerState == 1 {
-			if pageNumber > 2 { //测试时暂时只爬2页
-				logs.Info("exit digger because page come to 2")
+			if isShouldSopt() {
+				logs.Info("The exit condition is triggered")
+				sendMessage("function", "auto_stop")
+				diggerState = 0
+				time.Sleep(10 * time.Second)
 				break
 			}
 			pageHtml, url := "", "" //pageHtml暂存页面的html代码
@@ -250,7 +261,7 @@ func runBFS() error {
 					}
 				}
 			}
-			logs.Info("url:%s	pageLen:%d	imgNum:%d	linkNum:%d", url, len(pageHtml), len(imgLink), len(pagelink))
+			logs.Info("a page is ok: url:%s	pageLen:%d	imgNum:%d	linkNum:%d", url, len(pageHtml), len(imgLink), len(pagelink))
 		end:
 			//若页面队列已经到底，则BFS结束
 			if lastPageEle == foundPageList.Back() {
@@ -344,7 +355,7 @@ func setUpConfig(config string) error {
 	return nil
 }
 
-//保存图片成功后通过管道向qt端发送一条报告
+//每次保存图片成功后通过管道向qt端发送一条报告
 //size 的单位为字节
 func sendResult(imgUrl string, result string, saveName string, size int) error {
 	if imgUrl == "" || strings.Contains(imgUrl, " ") {
@@ -359,30 +370,96 @@ func sendResult(imgUrl string, result string, saveName string, size int) error {
 	if size < 0 {
 		return errors.New("size illeagle")
 	}
-	if resultChan == nil {
-		return errors.New("result chan not set up")
+	if msgChan == nil {
+		return errors.New("msgChan not set up")
 	}
-	resultStr := fmt.Sprintf("%s %dKB %s %s", imgUrl, (size+1)/1024, result, saveName) //size+1避免0作除数
-	(*resultChan) <- resultStr
+	resultStr := fmt.Sprintf("table@%s %dKB %s %s", imgUrl, (size+1)/1024, result, saveName) //size+1避免0作除数
+	sendMsgMutex.Lock()
+	logs.Debug("sendResult:   %s", resultStr)
+	(*msgChan) <- resultStr
+	sendMsgMutex.Unlock()
 	return nil
 }
 
-//获取用于表示当前工作状态报告信息的字符串 🐢
+//向qt端发送消息，达到控制组件或消息显示等目的
+func sendMessage(key, content string) error {
+	if key == "" || content == "" {
+		return errors.New("key or content is null string")
+	}
+	if strings.Contains(key+content, "") {
+		return errors.New("key or content contain space")
+	}
+	resultStr := fmt.Sprintf("%s@%s", key, content)
+	sendMsgMutex.Lock()
+	logs.Debug("sendMessage:   %s", sendResult)
+	(*msgChan) <- resultStr
+	sendMsgMutex.Unlock()
+	return nil
+}
+
+//堵塞，定期向qt端发送统计数据报告，
+func setupReporter() {
+	if reporterState > 0 {
+		logs.Warn("another reporter sill running")
+		return
+	}
+	logs.Info("reporter is running...")
+	reporterState++
+	tigger := time.Tick(2 * time.Second)
+	for _ = range tigger {
+		if reporterState != 1 {
+			break
+		}
+		reportStr, err := getReportString()
+		if err != nil {
+			logs.Error("getReportString fail: err=%v", err)
+			break
+		}
+		logs.Debug("static report: ", reportStr)
+		sendMessage("static", reportStr)
+	}
+	logs.Info("reporter exit...")
+	reporterState--
+}
+
+//================ 非核心功能代码 ===================
+
+//获取用于表示当前工作状态报告信息的字符串
+//调用后部分统计数值将会被更新
 func getReportString() (string, error) {
-	var err error
-	if diggerState == 0 { //未开始工作或已经终止
-		err = errors.New("Can't get report string because Digger is not working")
-		return "", err
+	if reporterState == 0 { //未开始工作或已经终止
+		return "", errors.New("Can't get report string because reposter is not working")
+	}
+	if diggerState == 2 {
+		return "", errors.New("Should'n send report because digger is pause")
 	}
 	duration := time.Since(lastTime)
 	lastTime = time.Now()
-	speed := duration.Seconds()
+	durationSecond := 1
+	if int(duration.Seconds()) > 1 { //避免出现0
+		durationSecond = int(duration.Seconds())
+	}
+	totalTime += durationSecond
+	speed := (tmpBytes / 1024) / durationSecond
 	tmpBytes = 0
-	percentage := 30
-	reportString := fmt.Sprintf("%d %d %d %d %.2fKB/s %s %d", totalNumber, totalBytes, foundPageList.Len(),
+	percentage := 30 //进度，百分之多少，暂时先用假数据
+	reportString := fmt.Sprintf("%d %d %d %d %dKB/s %s %d", totalNumber, totalBytes, foundPageList.Len(),
 		pageNumber, speed, time.Since(startTime), percentage)
 	return reportString, nil
 }
+
+//初始化或重置一些统计数值
+func initStaticValue() {
+	totalBytes = 0
+	totalNumber = 0
+	pageNumber = 0
+	tmpBytes = 0
+	totalTime = 0
+	lastTime = time.Now()
+	startTime = time.Now()
+}
+
+//============== 判断与检查代码 =============
 
 //检验一个url，且将相对地址转换为绝对地址,若有中文经过转码将会被还原 📇
 func CheckUrlAndConver(baseUrl string, targetUrl *string) error {
@@ -421,7 +498,29 @@ func CheckUrlAndConver(baseUrl string, targetUrl *string) error {
 	return nil
 }
 
-//================ 非核心功能代码 ===================
+//检查是否已到达应该结束任务的条件
+func isShouldSopt() bool {
+	if diggerState == 0 {
+		return true
+	}
+	if totalBytes >= totalSizeLimit<<20 {
+		logs.Info("total size of download files reach the limit")
+		return true
+	}
+	if pageNumber > pageLimit {
+		logs.Info("total page reach the limit")
+		return true
+	}
+	if totalNumber > numberLimit {
+		logs.Info("total numbers of download files reach the limit")
+		return true
+	}
+	if totalTime > waitTimeLimit {
+		logs.Info("total time of download reach the limit")
+		return true
+	}
+	return false
+}
 
 //判断 baseurl 格式是否正确可用
 func isBaseUrlRight(baseurl string) bool {
@@ -528,15 +627,4 @@ func canVisitBaseUrl() (bool, error) {
 		return false, err
 	}
 	return true, nil
-}
-
-//初始化一些统计数值
-func initStaticValue() {
-	totalBytes = 0
-	totalNumber = 0
-	pageNumber = 0
-	tmpBytes = 0
-	totalTime = 0
-	lastTime = time.Now()
-	startTime = time.Now()
 }

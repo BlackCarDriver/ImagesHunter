@@ -27,7 +27,9 @@ func WaitImgAndDownload(numbers int) error {
 		return fmt.Errorf("numbers illegal: numbers=%d", numbers)
 	}
 	downloadState = 1
+	logs.Debug("Images download is running...")
 	defer func() {
+		logs.Debug("Images download is close...")
 		downloadState = 0
 	}()
 	workersNum := numbers //空闲的下载协程
@@ -37,7 +39,7 @@ func WaitImgAndDownload(numbers int) error {
 	//以一秒为间隔，监听图片队列的变化
 	ticker := time.NewTicker(1 * time.Second)
 	for _ = range ticker.C {
-		//外部可以通过downloadState来结束这个协程
+		//外部可以通过downloadState来结束图片下载的工作，diggerState对此无影响
 		if downloadState == 0 {
 			logs.Info("downloader shut down because state=0")
 			break
@@ -57,7 +59,7 @@ func WaitImgAndDownload(numbers int) error {
 		//从图片队列中取尽可能多的链接出来进行下载
 		for {
 			//退出循环条件：下载协程数用尽、队列遇到末尾、用户暂停
-			if lastImgEle == nil || workersNum == 0 || diggerState != 1 {
+			if lastImgEle == nil || workersNum == 0 || downloadState != 1 {
 				break
 			}
 			imgUrl := lastImgEle.Value.(string)
@@ -129,6 +131,11 @@ func getAllSpeciicImgLink(baseUrl string, htmlCode *string, link *[]string) erro
 
 //下载图片到配置指定的目录,同时通过管道发出下载报告
 func DownLoadImg(imgUrl string) error {
+	if imgUrl != "" {
+		totalBytes += 1000
+		totalNumber++
+		return nil //暂时不下载图片
+	}
 	var err error
 	var resp *http.Response
 	var body []byte
@@ -183,9 +190,14 @@ func DownLoadImg(imgUrl string) error {
 end:
 	if err != nil {
 		logs.Warn("Download images fail, url=%s  err=%v", imgUrl, err)
-		sendResult(imgUrl, tag, "---", 0)
+		if err = sendResult(imgUrl, tag, "---", 0); err != nil {
+			logs.Warn(err)
+		}
+
 	} else {
-		sendResult(imgUrl, "OK", imgName, imgSize)
+		if err = sendResult(imgUrl, "OK", imgName, imgSize); err != nil {
+			logs.Warn(err)
+		}
 		//更新统计数值
 		updataSizeMutex.Lock()
 		totalBytes += imgSize
