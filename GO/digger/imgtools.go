@@ -17,9 +17,12 @@ import (
 	"github.com/astaxie/beego/logs"
 )
 
-//等待图片队列的图片链接到达，自动下载图片到本地, number:同时下载图片的协程数量
-//本函数会导致堵塞，需要运行在单独的协程中直接程序结束
-//外部可以通过 downloadState=2 暂停下载任务，downloadState=0 结束任务
+/*
+等待图片队列的图片链接到达，自动下载图片到本地, number:同时下载图片的协程数量
+本函数会导致堵塞，需要运行在单独的协程中直接程序结束
+外部可以通过 downloadState=2 暂停下载任务，downloadState=0 结束任务,
+可以直接通过调用本函数来恢复正在暂停的下载任务
+*/
 func WaitImgAndDownload(numbers int) error {
 	//若正处于暂停状态，则让暂停状态变回正常运行状态
 	if downloadState == 2 {
@@ -38,6 +41,8 @@ func WaitImgAndDownload(numbers int) error {
 	defer func() {
 		logs.Debug("Images download is close...")
 		downloadState = 0
+		//downloader结束后才让reporter结束，否则显示的统计数据失真
+		reporterState = 0
 	}()
 	workersNum := numbers //空闲的下载协程
 	var workersMtx sync.Mutex
@@ -46,16 +51,12 @@ func WaitImgAndDownload(numbers int) error {
 	//以一秒为间隔，监听图片队列的变化
 	ticker := time.NewTicker(1 * time.Second)
 	for _ = range ticker.C {
-		//外部可以通过downloadState来暂停和结束图片下载的工作
-		if downloadState == 2 {
-			continue
-		}
-		if downloadState == 0 {
-			logs.Info("downloader shut down because state=0")
+		//受外部控制或达到退出条件，则结束循环
+		if downloadState == 0 || isShouldStop() {
 			break
 		}
-		//队列为空发生在开始工作前，仅第一次有效
-		if foundImgList.Len() == 0 {
+		//外部可以通过downloadState来暂停和结束图片下载的工作
+		if downloadState == 2 || foundImgList.Len() == 0 {
 			continue
 		}
 		//队列又空边成非空后，获取的第一个元素才有意义。仅第一次有效
@@ -70,6 +71,9 @@ func WaitImgAndDownload(numbers int) error {
 		for {
 			//退出循环条件：下载协程数用尽、队列遇到末尾、用户暂停
 			if lastImgEle == nil || workersNum == 0 || downloadState != 1 {
+				break
+			}
+			if totalNumber >= numberLimit {
 				break
 			}
 			imgUrl := lastImgEle.Value.(string)
@@ -91,13 +95,6 @@ func WaitImgAndDownload(numbers int) error {
 				workersNum++
 				workersMtx.Unlock()
 			}()
-		}
-		//若到达结束条件，则结束工作
-		if isShouldSopt() {
-			logs.Info("The exit condition is triggered")
-			sendMessage("function", "digger autoly stop")
-			StopDigger()
-			break
 		}
 	}
 	return nil
@@ -157,12 +154,12 @@ func DownLoadImg(imgUrl string) error {
 	tag := "" //下载结果
 	if !isImgUrl(imgUrl) {
 		err = fmt.Errorf("not a images url: url=%s", imgUrl)
-		tag = "url worng"
+		tag = "url_worng"
 		goto end
 	}
 	resp, err = mainClient.Get(imgUrl)
 	if err != nil {
-		tag = "http fail"
+		tag = "http_fail"
 		goto end
 	}
 	if resp.StatusCode != http.StatusOK {
@@ -173,14 +170,14 @@ func DownLoadImg(imgUrl string) error {
 	body, err = ioutil.ReadAll(resp.Body)
 	if err != nil {
 		err = fmt.Errorf("ioutil ReadAll fail: %v", err)
-		tag = "read fail"
+		tag = "read_fail"
 		goto end
 	}
 	//文件大小检验
 	imgSize = len(body)
 	if imgSize < minSizeLimit*1024 || imgSize > maxSizeLimit*1024 {
 		err = fmt.Errorf("imgSize over limited: size=%d", imgSize)
-		tag = "size excess"
+		tag = "size_excess"
 		goto end
 	}
 	//保存文件到本地
@@ -190,13 +187,13 @@ func DownLoadImg(imgUrl string) error {
 	defer out.Close()
 	if err != nil {
 		err = fmt.Errorf("Create file fail: err=%v", err)
-		tag = "create fail"
+		tag = "create_fail"
 		goto end
 	}
 	_, err = io.Copy(out, bytes.NewReader(body))
 	if err != nil {
 		err = fmt.Errorf("copy images fail, err=%v", err)
-		tag = "copy fail"
+		tag = "copy_fail"
 		goto end
 	}
 end:
@@ -205,7 +202,6 @@ end:
 		if err = sendResult(imgUrl, tag, "---", 0); err != nil {
 			logs.Warn(err)
 		}
-
 	} else {
 		if err = sendResult(imgUrl, "OK", imgName, imgSize); err != nil {
 			logs.Warn(err)

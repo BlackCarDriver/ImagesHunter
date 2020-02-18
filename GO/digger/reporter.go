@@ -27,11 +27,8 @@ func setupReporter() {
 		logs.Info("reporter exit...")
 		reporterState = 0
 	}()
-	tigger := time.Tick(2 * time.Second)
+	tigger := time.Tick(1 * time.Second)
 	for _ = range tigger {
-		if reporterState != 1 {
-			break
-		}
 		reportStr, err := getReportString()
 		if err != nil {
 			logs.Error("getReportString fail: err=%v", err)
@@ -39,6 +36,9 @@ func setupReporter() {
 		}
 		if err := sendMessage("static", reportStr); err != nil {
 			logs.Warn("send report fail: err=%v", err)
+		}
+		if reporterState != 1 {
+			break
 		}
 	}
 	return
@@ -50,17 +50,17 @@ func getReportString() (string, error) {
 	if reporterState == 0 { //未开始工作或已经终止
 		return "", errors.New("Can't get report string because reposter is not working")
 	}
-	if diggerState == 2 {
-		return "", errors.New("Should'n send report because digger is pause")
-	}
-	duration := time.Since(lastTime)
-	lastTime = time.Now()
+	//若正在运行中，则更新总用时
 	durationSecond := 1
-	if int(duration.Seconds()) > 1 { //避免出现0
-		durationSecond = int(duration.Seconds())
+	if diggerState == 1 {
+		duration := time.Since(lastTime)
+		lastTime = time.Now()
+		if int(duration.Seconds()) > 1 { //避免出现0
+			durationSecond = int(duration.Seconds())
+		}
+		totalTime += durationSecond
 	}
-	totalTime += durationSecond
-	//表示当前速度
+	//计算实时速度
 	speed := (tmpBytes / 1024) / durationSecond //多少KB/s
 	speedStr := ""
 	if speed < 1024 {

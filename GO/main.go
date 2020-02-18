@@ -93,10 +93,11 @@ func TestHandler(content string) error {
 //开始图片获取功能
 func StartHunter(content string) error {
 	var err error
-	logs.Info("TODO: startHunter(), content=" + content)
+	logs.Info("StartHunter() called, content=" + content)
 	err = digger.StartDigger(content) //不堵塞
 	if err != nil {
 		logs.Error(err)
+		myBridge.SendMessage("error", err)
 		return err
 	}
 	return nil

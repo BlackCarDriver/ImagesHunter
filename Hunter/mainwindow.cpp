@@ -8,6 +8,8 @@ using namespace  std;
 
 MainWindow::MainWindow(QWidget *parent):QMainWindow(parent) ,ui(new Ui::MainWindow){
     setWindowIcon(QIcon(":./icom.ico"));
+    setMinimumSize(840, 630);
+    setMaximumSize(840,630);
     ui->setupUi(this);
     ui->static_list->horizontalHeader()->setStretchLastSection(true);
 
@@ -173,6 +175,7 @@ void MainWindow::on_btn_start_clicked(){
     QString state = ui->btn_start->text();
     if (state=="开始"){
         ui->static_list->clear();//清空列表
+        ui->static_list->setRowCount(0);
     }
     if(state=="暂停"){
 //      ui->btn_stop->setEnabled(false);
@@ -285,9 +288,9 @@ int MainWindow::staticHandle(void *thisP, QString content){
 int MainWindow::controlWindow(void *thisP, QString content){
     MainWindow *This = static_cast<MainWindow*>(thisP);
     if (content == "auto_stop") {   //任务到达结束条件，自动结束
+        This->ui->btn_start->setText("开始");
         This->ui->btn_stop->setEnabled(false);
         This->ui->btn_start->setEnabled(true);
-        This->ui->btn_start->setText("开始");
         QMessageBox::information(This, "info", "The missing is complete! :"+content);
         return 0;
     }

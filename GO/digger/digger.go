@@ -107,36 +107,26 @@ func init() {
 	regexpIsImgUrl = regexp.MustCompile(`https?://[^ "]*.(jpg|png|jpeg|gif|ico)$`)
 }
 
-//开始工作，config 为指定工作方式的配置说明
+//开始运行; config：指定工作方式的配置说明
 func StartDigger(config string) error {
 	var err error
-	if err := setUpConfig(config); err != nil { //初始化
-		logs.Error("Setupconfig fail: %v", err)
-		return err
+	if diggerState != 0 {
+		return errors.New("digger is already running")
 	}
-	if suc, err := canVisitBaseUrl(); !suc { //检查网络状态
-		logs.Warn("Can't not visit BaseUrl, err=%v", err)
-		return err
+	//初始化配置
+	if err := setUpConfig(config); err != nil {
+		return fmt.Errorf("Setupconfig fail, err=%v", err)
 	}
+	//检查网络状态
+	if suc, err := canVisitBaseUrl(); !suc {
+		return fmt.Errorf("Can't not visit BaseUrl, err=%v", err)
+	}
+	//初始化统计数值
 	initStaticValue()
-	err = ContinueDigger() //开始工作
-	if err != nil {
-		logs.Error("Start or continue fail: %v", err)
-		return err
+	//返回值非空时已经在另外的协程成功运行
+	if err = ContinueDigger(); err != nil {
+		return fmt.Errorf("Start or continue fail: %v", err)
 	}
-	return nil
-}
-
-//设置用于返回图片下载情况的管道
-func SetupMsgChan(newChan *chan string) error {
-	if newChan == nil {
-		return errors.New("newChan is nil")
-	}
-	if msgChan != nil {
-		return errors.New("setup msgChan fail because msgChan not nil")
-	}
-	msgChan = newChan
-	logs.Info("msgChan have been setup")
 	return nil
 }
 
@@ -148,11 +138,13 @@ func PauseDigger() error {
 	return nil
 }
 
-//终止工作清楚状态 🐢
+//终止工作清楚状态
 func StopDigger() error {
+	if diggerState == 0 {
+		return errors.New("digger already stop")
+	}
 	diggerState = 0
-	reporterState = 0    //结束发送报告任务
-	downloadState = 0    //结束图片下载任务
+	//打印工作结果
 	var totalSize string //用于表示下载文件总大小的字符串
 	if totalBytes < 1<<10 {
 		totalSize = fmt.Sprintf("%dB", totalBytes)
@@ -161,7 +153,6 @@ func StopDigger() error {
 	} else {
 		totalSize = fmt.Sprintf("%dMB", totalBytes>>20)
 	}
-	logs.Info("StopDigger() have been called, data have been clear")
 	logs.Info("Achievement: PageListLen=%d \t imagesListLen=%d \t PageNumber=%d \t imagesNumber=%d \t totalSize=%s",
 		foundPageList.Len(),
 		foundImgList.Len(),
@@ -178,7 +169,7 @@ func StopDigger() error {
 	return nil
 }
 
-//开始或继续工作
+//开始或继续工作,若为开始工作则需要先调用setupConfig来初始化配置
 func ContinueDigger() error {
 	var err error
 	switch diggerState {
@@ -240,9 +231,8 @@ func runBFS() error {
 	go func() {
 		for diggerState == 1 {
 			//到达停止条件，注意不仅要停止digger，而且要停止reporter 和 downloader
-			if isShouldSopt() {
-				logs.Info("The exit condition is triggered")
-				sendMessage("function", "auto_stop") //🐉
+			if isShouldStop() {
+				sendMessage("function", "auto_stop")
 				StopDigger()
 				break
 			}
@@ -328,6 +318,19 @@ func runLIST() error {
 }
 
 //======================= 次要流程 ==============
+
+//初始化msgChan, 从而可以直接通过管道向qt端发送数据
+func SetupMsgChan(newChan *chan string) error {
+	if newChan == nil {
+		return errors.New("newChan is nil")
+	}
+	if msgChan != nil {
+		return errors.New("setup msgChan fail because msgChan not nil")
+	}
+	msgChan = newChan
+	logs.Info("msgChan have been setup")
+	return nil
+}
 
 //处理指定工作方式的配置字符串，将其中的信息解析到全局变量之中
 //仅在第一开始、结束后重新开始时调用，暂停后继续不调用
@@ -462,7 +465,7 @@ func CheckUrlAndConver(baseUrl string, targetUrl *string) error {
 }
 
 //检查是否已到达应该结束任务的条件
-func isShouldSopt() bool {
+func isShouldStop() bool {
 	if diggerState == 0 {
 		return true
 	}
